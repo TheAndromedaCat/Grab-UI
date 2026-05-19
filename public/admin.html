@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grab Admin</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #121212; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; }
+        .container { max-width: 500px; margin-top: 100px; }
+        .card { background-color: #1e1e1e; border: 1px solid #333; color: #e0e0e0; }
+        .form-control { background-color: #2d2d2d; border: 1px solid #444; color: #fff; }
+        #admin-panel { display: none; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div id="login-box" class="card p-4">
+        <h3 class="mb-4">Admin Login</h3>
+        <input type="password" id="password" class="form-control mb-3" placeholder="Enter Password">
+        <button id="login-btn" class="btn btn-primary w-100">Login</button>
+        <div id="error" class="text-danger mt-2 small"></div>
+    </div>
+
+    <div id="admin-panel" class="card p-4">
+        <h3 class="mb-4">Feature Controls</h3>
+        <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="admin-filebot">
+            <label class="form-check-label">Enable FileBot Functionality</label>
+        </div>
+        <div class="form-check form-switch mb-4">
+            <input class="form-check-input" type="checkbox" id="admin-handbrake">
+            <label class="form-check-label">Enable HandBrake Functionality</label>
+        </div>
+        <button id="save-btn" class="btn btn-success w-100 mb-4">Save Changes</button>
+
+        <hr style="border-color: #444;">
+
+        <h3 class="mb-3 mt-2" style="font-size: 1.2em;">Update Admin Password</h3>
+        <input type="password" id="new-password" class="form-control mb-2" placeholder="New Password">
+        <button id="change-pass-btn" class="btn btn-outline-warning btn-sm w-100">Change Password</button>
+        <div id="pass-msg" class="mt-2 small"></div>
+
+        <a href="/" class="btn btn-link w-100 mt-4 text-secondary">Back to UI</a>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    const loginBox = document.getElementById('login-box');
+    const adminPanel = document.getElementById('admin-panel');
+    const passwordInput = document.getElementById('password');
+    const errorDiv = document.getElementById('error');
+    let currentPass = '';
+
+    document.getElementById('login-btn').addEventListener('click', () => {
+        currentPass = passwordInput.value;
+        socket.emit('admin-login', currentPass);
+    });
+
+    socket.on('login-success', (features) => {
+        loginBox.style.display = 'none';
+        adminPanel.style.display = 'block';
+        document.getElementById('admin-filebot').checked = features.filebot;
+        document.getElementById('admin-handbrake').checked = features.handbrake;
+    });
+
+    socket.on('login-error', (msg) => {
+        errorDiv.innerText = msg;
+    });
+
+    document.getElementById('save-btn').addEventListener('click', () => {
+        const features = {
+            filebot: document.getElementById('admin-filebot').checked,
+            handbrake: document.getElementById('admin-handbrake').checked
+        };
+        socket.emit('update-features', { pass: currentPass, features });
+        alert('Features updated globally.');
+    });
+
+    document.getElementById('change-pass-btn').addEventListener('click', () => {
+        const newPass = document.getElementById('new-password').value;
+        const msgDiv = document.getElementById('pass-msg');
+        if (!newPass) return;
+
+        socket.emit('change-password', { oldPass: currentPass, newPass: newPass });
+    });
+
+    socket.on('password-changed', (res) => {
+        const msgDiv = document.getElementById('pass-msg');
+        if (res.success) {
+            msgDiv.className = 'mt-2 small text-success';
+            msgDiv.innerText = 'Password updated successfully!';
+            currentPass = document.getElementById('new-password').value;
+            document.getElementById('new-password').value = '';
+        } else {
+            msgDiv.className = 'mt-2 small text-danger';
+            msgDiv.innerText = res.message;
+        }
+    });
+</script>
+</body>
+</html>
