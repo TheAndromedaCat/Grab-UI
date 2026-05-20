@@ -1,6 +1,6 @@
 {
   "name": "grab-ui",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Web interface for grab.sh",
   "license": "MIT",
   "main": "index.js",
