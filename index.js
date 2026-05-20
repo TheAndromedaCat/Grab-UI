@@ -30,6 +30,7 @@ function getUserState(username) {
         state.userConfigs[username] = { 
             type: 'movie', 
             url: '', 
+            project: '',
             useFilebot: false, 
             useHandbrake: false,
             fbAutoPick: true 
@@ -46,21 +47,20 @@ function getUserState(username) {
     return userStates[username];
 }
 
-function getUserPaths(username) {
-    const staging = path.join(__dirname, '__STAGING__', username);
-    const outputs = path.join(__dirname, '__OUTPUTS__', username);
+function getPathForTarget(target) {
+    const staging = path.join(__dirname, '__STAGING__', target);
+    const outputs = path.join(__dirname, '__OUTPUTS__', target);
     if (!fs.existsSync(staging)) fs.mkdirSync(staging, { recursive: true, mode: 0o777 });
     if (!fs.existsSync(outputs)) fs.mkdirSync(outputs, { recursive: true, mode: 0o777 });
-    
-    // Ensure existing folders also get permissive permissions
     try {
         fs.chmodSync(staging, 0o777);
         fs.chmodSync(outputs, 0o777);
-    } catch (e) {
-        // Ignore errors on platforms that don't support chmod (like some Windows setups)
-    }
-    
+    } catch (e) {}
     return { staging, outputs };
+}
+
+function getUserPaths(username) {
+    return getPathForTarget(username);
 }
 
 function saveState() {
@@ -190,7 +190,7 @@ io.on('connection', (socket) => {
 
     socket.on('get-file-details', (data) => {
         const { root, filePath } = data;
-        const rootPath = root === 'staging' ? userPaths.staging : userPaths.outputs;
+        const rootPath = path.join(__dirname, root === 'staging' ? '__STAGING__' : '__OUTPUTS__');
         const fullPath = path.join(rootPath, filePath);
         
         if (!fullPath.startsWith(rootPath)) return;
@@ -201,7 +201,7 @@ io.on('connection', (socket) => {
         exec(cmd, (error, stdout) => {
             if (error) return socket.emit('file-details', { 
                 name: path.basename(fullPath), 
-                path: path.relative(path.dirname(__dirname), fullPath),
+                path: path.relative(__dirname, fullPath),
                 size: formatBytes(stats.size), 
                 error: 'Metadata probe failed',
                 root, filePath
@@ -212,7 +212,7 @@ io.on('connection', (socket) => {
                 const audio = info.streams.find(s => s.codec_type === 'audio') || {};
                 socket.emit('file-details', {
                     name: path.basename(fullPath),
-                    path: path.relative(path.dirname(__dirname), fullPath),
+                    path: path.relative(__dirname, fullPath),
                     size: formatBytes(stats.size),
                     duration: formatDuration(info.format.duration),
                     container: info.format.format_long_name,
@@ -268,11 +268,13 @@ io.on('connection', (socket) => {
         io.to(username).emit('clear-terminal');
         io.to(username).emit('output', userState.logHistory);
 
-        const { type, url, fbAutoPick } = config;
+        const { type, url, fbAutoPick, project } = config;
         let { useFilebot, useHandbrake } = config;
 
         if (!state.featuresEnabled.filebot) useFilebot = false;
         if (!state.featuresEnabled.handbrake) useHandbrake = false;
+
+        const activePaths = getPathForTarget(project || username);
 
         userState.shell = pty.spawn('bash', ['grab.sh'], {
             name: 'xterm-color', 
@@ -281,8 +283,8 @@ io.on('connection', (socket) => {
             cwd: process.cwd(), 
             env: {
                 ...process.env,
-                STAGING_DIR_OVERRIDE: userPaths.staging,
-                OUTPUT_DIR_OVERRIDE: userPaths.outputs
+                STAGING_DIR_OVERRIDE: activePaths.staging,
+                OUTPUT_DIR_OVERRIDE: activePaths.outputs
             }
         });
 
@@ -298,9 +300,9 @@ io.on('connection', (socket) => {
             io.to(username).emit('output', msg);
             userState.shell = null; 
             io.to(username).emit('process-exit');
-            io.to(username).emit('tree-data', { 
-                staging: getTree(userPaths.staging), 
-                outputs: getTree(userPaths.outputs) 
+            io.emit('tree-data', { 
+                staging: getTree(path.join(__dirname, '__STAGING__')), 
+                outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
             });
         });
 
@@ -323,9 +325,9 @@ io.on('connection', (socket) => {
     });
 
     socket.on('get-tree', () => {
-        io.to(username).emit('tree-data', { 
-            staging: getTree(userPaths.staging), 
-            outputs: getTree(userPaths.outputs) 
+        socket.emit('tree-data', { 
+            staging: getTree(path.join(__dirname, '__STAGING__')), 
+            outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
         });
     });
     
@@ -344,8 +346,8 @@ io.on('connection', (socket) => {
     // Periodic tree refresh for this user's active session
     const treeInterval = setInterval(() => {
         socket.emit('tree-data', { 
-            staging: getTree(userPaths.staging), 
-            outputs: getTree(userPaths.outputs) 
+            staging: getTree(path.join(__dirname, '__STAGING__')), 
+            outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
         });
     }, 10000);
 

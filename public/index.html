@@ -53,10 +53,11 @@
     </div>
     <div class="card p-4">
         <div class="row g-3">
-            <div class="col-md-6"><label class="form-label">Mode</label>
+            <div class="col-md-4"><label class="form-label">Mode</label>
                 <select id="type" class="form-select sync-config"><option value="movie">Movie</option><option value="show">TV Show</option><option value="transcode-only">HandBrake Only</option><option value="filebot-only">FileBot Only</option></select>
             </div>
-            <div class="col-md-6"><label class="form-label">URL / Path</label><input type="text" id="url" class="form-control sync-config" placeholder="http://..."></div>
+            <div class="col-md-4"><label class="form-label">Project (Blank for private)</label><input type="text" id="project" class="form-control sync-config" placeholder="CustomProject..."></div>
+            <div class="col-md-4"><label class="form-label">URL / Path</label><input type="text" id="url" class="form-control sync-config" placeholder="http://..."></div>
             <div class="col-md-3 mt-4">
                 <div class="form-check form-switch"><input class="form-check-input sync-config" type="checkbox" id="useFilebot"><label class="form-check-label" for="useFilebot">Use FileBot</label></div>
             </div>
@@ -170,6 +171,7 @@
 
     function applyConfig(config) {
         document.getElementById('type').value = config.type; document.getElementById('url').value = config.url;
+        document.getElementById('project').value = config.project || '';
         document.getElementById('useFilebot').checked = config.useFilebot; document.getElementById('fbAutoPick').checked = config.fbAutoPick;
         document.getElementById('useHandbrake').checked = config.useHandbrake;
     }
@@ -182,6 +184,7 @@
         el.addEventListener('change', () => {
             socket.emit('update-config', {
                 type: document.getElementById('type').value, url: document.getElementById('url').value,
+                project: document.getElementById('project').value,
                 useFilebot: document.getElementById('useFilebot').checked, fbAutoPick: document.getElementById('fbAutoPick').checked,
                 useHandbrake: document.getElementById('useHandbrake').checked
             });
@@ -190,6 +193,7 @@
     runBtn.addEventListener('click', () => {
         syncSize(); socket.emit('run-command', {
             type: document.getElementById('type').value, url: document.getElementById('url').value,
+            project: document.getElementById('project').value,
             useFilebot: document.getElementById('useFilebot').checked, fbAutoPick: document.getElementById('fbAutoPick').checked,
             useHandbrake: document.getElementById('useHandbrake').checked, cols: term.cols, rows: term.rows
         });
@@ -198,17 +202,56 @@
     killBtn.addEventListener('click', () => socket.emit('kill'));
     socket.on('tree-data', (data) => { renderTree(data.staging, document.getElementById('staging-tree'), 'staging', true); renderTree(data.outputs, document.getElementById('outputs-tree'), 'outputs', true); });
     function renderTree(data, container, treeId, isTopLevel = false, path = '') {
-        if (isTopLevel) container.innerHTML = ''; if (!data || data.length === 0) { if (isTopLevel) container.innerHTML = '<div class="text-muted small">Empty</div>'; return; }
-        const ul = document.createElement('ul'); ul.className = 'tree-list' + (isTopLevel ? ' active' : ' nested');
+        if (isTopLevel) container.innerHTML = '';
+        if (!data || data.length === 0) {
+            if (isTopLevel) container.innerHTML = '<div class="text-muted small">Empty</div>';
+            return;
+        }
+
+        const ul = document.createElement('ul');
+        ul.className = 'tree-list active'; // Always active, parent div handles visibility
+        
         data.forEach(item => {
-            const currentPath = `${path}/${item.name}`; const li = document.createElement('li');
-            li.className = 'tree-item ' + (item.isDirectory ? 'folder' : 'file'); if (item.isDirectory && openPaths.has(`${treeId}:${currentPath}`)) li.classList.add('open');
-            const span = document.createElement('span'); span.innerText = item.name; li.appendChild(span);
+            const currentPath = `${path}/${item.name}`;
+            const li = document.createElement('li');
+            li.className = 'tree-item ' + (item.isDirectory ? 'folder' : 'file');
+            
+            if (item.isDirectory && openPaths.has(`${treeId}:${currentPath}`)) {
+                li.classList.add('open');
+            }
+
+            const span = document.createElement('span');
+            span.innerText = item.name;
+            li.appendChild(span);
+
             if (item.isDirectory) {
-                const nestedContainer = document.createElement('div'); if (openPaths.has(`${treeId}:${currentPath}`)) nestedContainer.className = 'active';
-                li.appendChild(nestedContainer); li.addEventListener('click', function(e) { e.stopPropagation(); const isOpen = this.classList.toggle('open'); const nested = this.querySelector('div'); nested.classList.toggle('active'); if (isOpen) openPaths.add(`${treeId}:${currentPath}`); else openPaths.delete(`${treeId}:${currentPath}`); });
+                const nestedContainer = document.createElement('div');
+                nestedContainer.className = (openPaths.has(`${treeId}:${currentPath}`) ? 'active' : 'nested');
+                li.appendChild(nestedContainer);
+
+                li.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const isOpen = this.classList.toggle('open');
+                    const nested = this.querySelector('div');
+                    if (isOpen) {
+                        nested.classList.replace('nested', 'active');
+                        openPaths.add(`${treeId}:${currentPath}`);
+                    } else {
+                        nested.classList.replace('active', 'nested');
+                        openPaths.delete(`${treeId}:${currentPath}`);
+                    }
+                });
+
                 renderTree(item.children, nestedContainer, treeId, false, currentPath);
-            } else { li.addEventListener('click', function(e) { e.stopPropagation(); document.getElementById('detailsTitle').innerText = item.name; document.getElementById('detailsBody').innerHTML = '<div class="text-center py-4">Probing file...</div>'; detailsModal.show(); socket.emit('get-file-details', { root: treeId, filePath: currentPath.substring(1) }); }); }
+            } else {
+                li.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    document.getElementById('detailsTitle').innerText = item.name;
+                    document.getElementById('detailsBody').innerHTML = '<div class="text-center py-4">Probing file...</div>';
+                    detailsModal.show();
+                    socket.emit('get-file-details', { root: treeId, filePath: currentPath.substring(1) });
+                });
+            }
             ul.appendChild(li);
         });
         container.appendChild(ul);
