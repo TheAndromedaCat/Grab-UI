@@ -19,11 +19,30 @@ class GrabUi < Formula
     bin.install_symlink Dir["#{libexec}/bin/*"]
   end
 
+  service do
+    run [opt_bin/"grab-ui"]
+    keep_alive true
+    error_log_path var/"log/grab-ui.log"
+    log_path var/"log/grab-ui.log"
+    working_dir var/"grab-ui"
+  end
+
+  def post_install
+    (var/"grab-ui").mkpath
+    (var/"log").mkpath
+  end
+
   def caveats
     <<~EOS
       Grab-UI requires PAM for authentication on Linux. Ensure 'libpam0g-dev' (Debian/Ubuntu) 
       or 'pam-devel' (RHEL/Fedora) is installed on your host system.
       
+      To start Grab-UI as a background service:
+        brew services start grab-ui
+
+      Alternatively, you can use PM2 to manage the process:
+        pm2 start #{opt_bin}/grab-ui --name grab-ui
+
       Optional dependencies like 'handbrake-cli' and 'filebot' should be installed separately:
         brew install handbrake-cli (Linux) or brew install --cask handbrake-cli (macOS)
     EOS
