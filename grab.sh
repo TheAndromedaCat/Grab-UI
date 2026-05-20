@@ -76,49 +76,11 @@ if ! $CONVERT_ONLY && ! $FILEBOT_ONLY; then
 fi
 
 # ---------- HELPERS ----------
-urldecode() {
-  python3 - "$1" <<'EOF'
-import sys, urllib.parse
-print(urllib.parse.unquote(sys.argv))
-EOF
-}
-
-build_url() {
-  local current_url="$1"
-  local path_to_build="$2"
-
-  [[ "$path_to_build" =~ ^http ]] && {
-    echo "$path_to_build"
-    return
-  }
-
-  [[ "$path_to_build" =~ ^/ ]] && {
-    echo "$base$path_to_build"
-    return
-  }
-
-  echo "${current_url%/}/$path_to_build"
-}
-
-countdown() {
-  local delay=$((RANDOM % 10 + 10))
-  echo "[Wait] Starting in $delay seconds..."
-  for ((i=delay; i>0; i--)); do
-    printf "\r[Wait] %2ds remaining...   " "$i"
-    sleep 1
-  done
-  echo
-}
-
-is_media_file() {
-  local f="$1"
-  file "$f" | grep -qiE 'Matroska|MP4|AVI|MPEG|ISO Media'
-}
-
 has_local_episode() {
   local ep_tag="$1"
   local found
-  found=$(find "$OUTPUT_DIR" "$STAGING_DIR" -type f -iname "*${ep_tag}*" -print -quit 2>/dev/null)
+  # Search both base areas to avoid any redundant downloads across projects/users
+  found=$(find "${BASE_STAGING:-$STAGING_DIR}" "${BASE_OUTPUTS:-$OUTPUT_DIR}" -type f -iname "*${ep_tag}*" -print -quit 2>/dev/null)
   
   if [[ -n "$found" ]]; then
     return 0

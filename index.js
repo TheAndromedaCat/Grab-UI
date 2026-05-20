@@ -331,6 +331,8 @@ io.on('connection', (socket) => {
         if (!state.featuresEnabled.handbrake) useHandbrake = false;
 
         const activePaths = getPathForTarget(project || username);
+        const baseStaging = path.join(__dirname, '__STAGING__');
+        const baseOutputs = path.join(__dirname, '__OUTPUTS__');
 
         slot.shell = pty.spawn('bash', ['grab.sh'], {
             name: 'xterm-color', 
@@ -340,7 +342,9 @@ io.on('connection', (socket) => {
             env: {
                 ...process.env,
                 STAGING_DIR_OVERRIDE: activePaths.staging,
-                OUTPUT_DIR_OVERRIDE: activePaths.outputs
+                OUTPUT_DIR_OVERRIDE: baseOutputs, // FileBot organizes into the global library
+                BASE_STAGING: baseStaging,
+                BASE_OUTPUTS: baseOutputs
             }
         });
 

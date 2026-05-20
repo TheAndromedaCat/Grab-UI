@@ -129,7 +129,6 @@
             slotEl.innerHTML = `
                 <div class="session-header">
                     <h5 class="mb-0">Session ${i + 1}</h5>
-                    ${i > 0 ? `<button class="btn btn-outline-danger btn-sm" onclick="removeSlot(${i})">Remove</button>` : ''}
                 </div>
                 <div class="row g-3 mb-4">
                     <div class="col-md-4"><label class="form-label">Mode</label>
@@ -143,6 +142,7 @@
                     <div class="col-md-3 mt-4 d-flex gap-2">
                         <button id="run-btn-${i}" class="btn btn-primary flex-grow-1" onclick="runCommand(${i})">RUN</button>
                         <button id="kill-btn-${i}" class="btn btn-danger" onclick="killCommand(${i})" ${s.isRunning ? '' : 'disabled'}>KILL</button>
+                        ${i > 0 ? `<button class="btn btn-outline-danger" onclick="removeSlot(${i})" title="Remove Session">Remove</button>` : ''}
                     </div>
                 </div>
                 <div class="terminal-wrapper">
