@@ -6,7 +6,6 @@ command: grab-ui-start
 finish-args:
   - --share=network
   - --share=ipc
-  - --socket=x11 # If needed for any GUI tools, though this is a web server
   - --filesystem=home
   - --device=all
   - --allow=multiarch
@@ -27,11 +26,27 @@ modules:
     buildsystem: simple
     build-commands:
       - npm install
+      - npm install -g pm2
       - install -d /app/bin
       - cp -r * /app/
       - ln -s /app/index.js /app/bin/grab-ui-server
-      - echo '#!/bin/bash' > /app/bin/grab-ui-start
-      - echo 'cd /app && node index.js' >> /app/bin/grab-ui-start
+      - |
+        cat <<EOF > /app/bin/grab-ui-start
+        #!/bin/bash
+        # Ensure the persistent directory exists on the host
+        GRAB_HOME="\$HOME/grab"
+        mkdir -p "\$GRAB_HOME/__STAGING__" "\$GRAB_HOME/__OUTPUTS__"
+        
+        # Link them into the app directory if they don't exist
+        [ ! -L "/app/__STAGING__" ] && ln -s "\$GRAB_HOME/__STAGING__" /app/__STAGING__
+        [ ! -L "/app/__OUTPUTS__" ] && ln -s "\$GRAB_HOME/__OUTPUTS__" /app/__OUTPUTS__
+        
+        echo "🚀 Grab UI Server is now ACTIVE"
+        echo "🌐 Access it at: http://localhost:2026"
+        echo "------------------------------------------------"
+        
+        cd /app && pm2 start index.js --name "grab-ui" --no-daemon
+        EOF
       - chmod +x /app/bin/grab-ui-start
     sources:
       - type: dir
