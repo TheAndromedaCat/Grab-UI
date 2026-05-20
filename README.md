@@ -33,22 +33,70 @@ Grab UI integrates directly with your host system's security model:
 
 ### 1. Prerequisites
 Ensure your system meets the following requirements:
-- **Node.js** (v18.x or higher recommended):
+
+#### **Node.js Installation** (v18.x or higher recommended)
+- **Ubuntu/Debian**:
   ```bash
-  # Using NodeSource for the latest LTS
   curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
   sudo apt install -y nodejs
   ```
-- **Linux Environment** (Ubuntu/Debian recommended)
-- **PAM Development Headers** (Required for authentication):
+- **Arch Linux**:
+  ```bash
+  sudo pacman -S nodejs npm
+  ```
+- **Fedora**:
+  ```bash
+  sudo dnf install nodejs
+  ```
+- **openSUSE**:
+  ```bash
+  sudo zypper install nodejs20
+  ```
+
+#### **Mandatory System Dependencies**
+These are required for basic functionality and authentication:
+
+- **Ubuntu/Debian**:
   ```bash
   sudo apt update
   sudo apt install libpam0g-dev build-essential
   ```
-- **Optional Processing Tools**:
-  - `HandBrakeCLI`: `sudo apt install handbrake-cli`
-  - `ffmpeg` & `ffprobe`: `sudo apt install ffmpeg`
-  - `filebot`: Follow [official instructions](https://www.filebot.net/linux/apt.html) to add their repository.
+- **Arch Linux**:
+  ```bash
+  sudo pacman -S pam base-devel
+  ```
+- **Fedora**:
+  ```bash
+  sudo dnf install pam-devel gcc-c++ make
+  ```
+- **openSUSE**:
+  ```bash
+  sudo zypper install pam-devel gcc-c++ make
+  ```
+
+#### **Optional Media Tools**
+Install these to enable transcoding, metadata inspection, and automated renaming:
+
+- **Ubuntu/Debian**:
+  ```bash
+  sudo apt install ffmpeg handbrake-cli
+  ```
+- **Arch Linux**:
+  ```bash
+  sudo pacman -S ffmpeg handbrake-cli
+  ```
+- **Fedora**:
+  ```bash
+  # Note: ffmpeg and HandBrake-cli may require RPM Fusion
+  sudo dnf install ffmpeg HandBrake-cli
+  ```
+- **openSUSE**:
+  ```bash
+  # Note: ffmpeg and HandBrake-CLI may require the Packman repository
+  sudo zypper install ffmpeg HandBrake-CLI
+  ```
+
+- **FileBot**: Follow [official instructions](https://www.filebot.net/linux/apt.html) for your specific distribution.
 
 ### 2. Quick Start
 1. **Clone the repository**:
@@ -94,6 +142,26 @@ pm2 startup
 - **Monitor:** `pm2 monit`
 
 The web interface will be available at `http://your-server-ip:2026`.
+
+### 5. Flatpak Installation (Experimental)
+For a containerized installation that bundles dependencies, you can build and install the Flatpak:
+
+1. **Install Flatpak Builder**:
+   - **Ubuntu/Debian**: `sudo apt install flatpak-builder`
+   - **Arch**: `sudo pacman -S flatpak-builder`
+   - **Fedora**: `sudo dnf install flatpak-builder`
+
+2. **Build and Install**:
+   ```bash
+   flatpak-builder --user --install --force-clean build-dir flatpak/com.github.grab_ui.yml
+   ```
+
+3. **Run**:
+   ```bash
+   flatpak run com.github.grab_ui
+   ```
+
+*Note: The Flatpak version is experimental. Since it runs in a sandbox, Host PAM authentication may require additional configuration or be disabled in `index.js`.*
 
 ---
 *Note: This tool is intended for personal media management and organization.*

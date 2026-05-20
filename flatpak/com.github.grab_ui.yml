@@ -1,0 +1,38 @@
+app-id: com.github.grab_ui
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+command: grab-ui-start
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=x11 # If needed for any GUI tools, though this is a web server
+  - --filesystem=home
+  - --device=all
+  - --allow=multiarch
+  - --talk-name=org.freedesktop.Flatpak
+
+modules:
+  - name: nodejs
+    sources:
+      - type: archive
+        url: https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-x64.tar.xz
+        sha256: 09d9482fd8f90c3710776b927a42a0487532d8478d1045a1f6a6f6911c471018
+    cleanup:
+      - /include
+      - /share/doc
+      - /share/man
+
+  - name: grab-ui
+    buildsystem: simple
+    build-commands:
+      - npm install
+      - install -d /app/bin
+      - cp -r * /app/
+      - ln -s /app/index.js /app/bin/grab-ui-server
+      - echo '#!/bin/bash' > /app/bin/grab-ui-start
+      - echo 'cd /app && node index.js' >> /app/bin/grab-ui-start
+      - chmod +x /app/bin/grab-ui-start
+    sources:
+      - type: dir
+        path: ..
