@@ -262,17 +262,30 @@ io.on('connection', (socket) => {
                 const info = JSON.parse(stdout);
                 const video = info.streams.find(s => s.codec_type === 'video') || {};
                 const audio = info.streams.find(s => s.codec_type === 'audio') || {};
-                socket.emit('file-details', {
-                    name: path.basename(fullPath),
-                    path: path.relative(__dirname, fullPath),
-                    size: formatBytes(stats.size),
-                    duration: formatDuration(info.format.duration),
-                    container: info.format.format_long_name,
-                    width: video.width, height: video.height, fps: video.r_frame_rate,
-                    audio_bitrate: audio.bit_rate ? formatBytes(parseInt(audio.bit_rate)) + '/s' : 'N/A',
-                    channels: audio.channels, sample_rate: audio.sample_rate ? (audio.sample_rate / 1000) + ' kHz' : 'N/A',
-                    root, filePath
-                });
+                
+                const emitDetails = (thumbnail = null) => {
+                    socket.emit('file-details', {
+                        name: path.basename(fullPath),
+                        path: path.relative(__dirname, fullPath),
+                        size: formatBytes(stats.size),
+                        duration: formatDuration(info.format.duration),
+                        container: info.format.format_long_name,
+                        width: video.width, height: video.height, fps: video.r_frame_rate,
+                        audio_bitrate: audio.bit_rate ? formatBytes(parseInt(audio.bit_rate)) + '/s' : 'N/A',
+                        channels: audio.channels, sample_rate: audio.sample_rate ? (audio.sample_rate / 1000) + ' kHz' : 'N/A',
+                        thumbnail,
+                        root, filePath
+                    });
+                };
+
+                if (video.codec_name) {
+                    const thumbCmd = `ffmpeg -ss 00:00:05 -i "${fullPath}" -vframes 1 -vf "scale=640:-1" -f image2pipe -vcodec mjpeg -`;
+                    exec(thumbCmd, { encoding: 'buffer', maxBuffer: 1024 * 1024 }, (tErr, tStdout) => {
+                        emitDetails(tErr ? null : tStdout.toString('base64'));
+                    });
+                } else {
+                    emitDetails();
+                }
             } catch (e) { socket.emit('file-details', { name: path.basename(fullPath), size: formatBytes(stats.size), error: 'Metadata parsing failed', root, filePath }); }
         });
     });

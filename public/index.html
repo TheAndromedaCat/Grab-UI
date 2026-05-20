@@ -148,13 +148,50 @@
     socket.on('output', (data) => {
         const slot = slots[data.index];
         if (slot && slot.term) {
-            slot.term.write(data.data);
+            let cleanData = data.data;
+
+            // Intercept Download Progress
+            if (cleanData.includes('[DL_PROGRESS]')) {
+                const match = cleanData.match(/\[DL_PROGRESS\]\s+(\d+)%/);
+                if (match) {
+                    const percent = match[1];
+                    updateDownloadProgress(data.index, percent);
+                }
+                return; // Hide from console
+            }
+
+            // Intercept URL for name guessing
+            if (cleanData.includes('[DL] URL:')) {
+                const urlMatch = cleanData.match(/\[DL\] URL:\s+(.+)/);
+                if (urlMatch) {
+                    const fileName = urlMatch[1].split('/').pop().split('?')[0];
+                    document.getElementById(`dl-name-${data.index}`).innerText = decodeURIComponent(fileName);
+                    document.getElementById(`dl-progress-area-${data.index}`).style.setProperty('display', 'flex', 'important');
+                }
+            }
+
+            // Reset progress on completion or skip
+            if (cleanData.includes('[✓] Download complete') || cleanData.includes('[✗] Download failed') || cleanData.includes('[Skip]')) {
+                setTimeout(() => {
+                    document.getElementById(`dl-progress-area-${data.index}`).style.setProperty('display', 'none', 'important');
+                }, 2000);
+            }
+
+            slot.term.write(cleanData);
             if (slot.isAtBottom) slot.term.scrollToBottom();
 
-            // Check for prompts
             setTimeout(() => checkFileBotPrompt(data.index), 50);
         }
     });
+
+    function updateDownloadProgress(index, percent) {
+        const bar = document.getElementById(`dl-bar-${index}`);
+        const text = document.getElementById(`dl-percent-${index}`);
+        const area = document.getElementById(`dl-progress-area-${index}`);
+        if (bar) bar.style.width = percent + '%';
+        if (text) text.innerText = percent + '%';
+        if (area) area.style.setProperty('display', 'flex', 'important');
+    }
 
     function checkFileBotPrompt(index) {
         const slot = slots[index];
@@ -164,7 +201,6 @@
         const buffer = term.buffer.active;
         let lastLines = [];
 
-        // Grab the last 15 lines to be safe for lists
         for (let i = buffer.baseY + term.rows - 1; i >= Math.max(0, buffer.baseY); i--) {
             const line = buffer.getLine(i);
             if (line) lastLines.unshift(line.translateToString().trim());
@@ -174,23 +210,20 @@
         const promptArea = document.getElementById(`fb-prompt-area-${index}`);
         const select = document.getElementById(`fb-choices-${index}`);
 
-        // Pattern 1: Type Selection
         if (fullText.includes('Type? (S=Show, M=Movie, Skip=Enter):')) {
-            if (select.dataset.type === 'mode') return; // Already showing
+            if (select.dataset.type === 'mode') return;
             select.innerHTML = '<option value="">Select Mode...</option>' +
                 '<option value="S\n">TV Show</option>' +
                 '<option value="M\n">Movie</option>' +
                 '<option value="\n">Skip</option>';
             select.dataset.type = 'mode';
-            promptArea.style.visibility = 'visible';
+            promptArea.style.setProperty('display', 'flex', 'important');
             return;
         }
 
-        // Pattern 2: Choice from list
         if (fullText.includes('Choice:')) {
             const lines = fullText.split('\n');
             const options = [];
-            // Look for lines like " 1) Name (Year)"
             const optionRegex = /^\s*(\d+)\)\s+(.+)$/;
 
             lines.forEach(line => {
@@ -203,14 +236,13 @@
                 select.innerHTML = '<option value="">Select Match...</option>' +
                     options.map(o => `<option value="${o.val}">${o.label}</option>`).join('');
                 select.dataset.type = 'choice';
-                promptArea.style.visibility = 'visible';
+                promptArea.style.setProperty('display', 'flex', 'important');
                 return;
             }
         }
 
-        // Hide if no prompt detected
-        if (promptArea.style.visibility === 'visible' && !fullText.includes('Choice:') && !fullText.includes('Type?')) {
-            promptArea.style.visibility = 'hidden';
+        if (promptArea.style.display === 'flex' && !fullText.includes('Choice:') && !fullText.includes('Type?')) {
+            promptArea.style.setProperty('display', 'none', 'important');
             select.dataset.type = '';
         }
     }
@@ -221,9 +253,7 @@
         if (!val) return;
 
         socket.emit('input', { index, input: val });
-
-        // Hide immediately
-        document.getElementById(`fb-prompt-area-${index}`).style.visibility = 'hidden';
+        document.getElementById(`fb-prompt-area-${index}`).style.setProperty('display', 'none', 'important');
         select.dataset.type = '';
         select.value = '';
     }
@@ -274,11 +304,20 @@
                 <div class="terminal-wrapper">
                     <div class="terminal-scroll-area"><div id="term-${i}" class="terminal-container"></div></div>
                     <div class="terminal-footer">
-                        <div id="fb-prompt-area-${i}" class="d-flex align-items-center gap-2" style="visibility: hidden;">
-                            <span class="small text-muted">FileBot:</span>
-                            <select id="fb-choices-${i}" class="fb-dropdown" onchange="submitFbChoice(${i})">
-                                <option value="">Select option...</option>
-                            </select>
+                        <div class="d-flex align-items-center gap-3 flex-grow-1">
+                            <div id="fb-prompt-area-${i}" class="d-flex align-items-center gap-2" style="display: none !important;">
+                                <span class="small text-muted">FileBot:</span>
+                                <select id="fb-choices-${i}" class="fb-dropdown" onchange="submitFbChoice(${i})">
+                                    <option value="">Select option...</option>
+                                </select>
+                            </div>
+                            <div id="dl-progress-area-${i}" class="d-flex align-items-center gap-2 flex-grow-1 me-3" style="display: none !important; min-width: 0;">
+                                <span class="small text-info text-nowrap" id="dl-name-${i}" style="flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0;">Downloading...</span>
+                                <div class="progress" style="height: 10px; background-color: #333; width: 100px; flex-shrink: 0;">
+                                    <div id="dl-bar-${i}" class="progress-bar bg-info progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <span class="small text-info" id="dl-percent-${i}" style="flex-shrink: 0;">0%</span>
+                            </div>
                         </div>
                         <a href="#" class="scroll-to-bottom" onclick="scrollToBottom(event, ${i})">↓ Go to bottom</a>
                     </div>
@@ -438,6 +477,7 @@
 
         const rows = [['File Size', data.size],['Duration', data.duration],['Container', data.container],['Resolution', data.width ? `${data.width}x${data.height}` : 'N/A'],['Frame Rate', data.fps],['Audio Bitrate', data.audio_bitrate],['Channels', data.channels],['Sample Rate', data.sample_rate]];
         body.innerHTML = `
+            ${data.thumbnail ? `<div class="mb-3" style="margin: -1rem -1rem 1rem -1rem; overflow: hidden; border-bottom: 1px solid #333;"><img src="data:image/jpeg;base64,${data.thumbnail}" style="width: 100%; display: block; object-fit: cover; max-height: 250px;"></div>` : ''}
             <div class="mb-3 border-bottom border-secondary pb-2">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <div class="detail-label">Local Folder Path</div>

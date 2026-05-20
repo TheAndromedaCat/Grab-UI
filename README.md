@@ -30,9 +30,70 @@ Grab UI integrates directly with your host system's security model:
 - **Admin Authorization:** Dedicated administrative layer for feature management and password control.
 
 ## 🛠 Installation & Deployment
-For detailed setup instructions, including system dependencies (`HandBrakeCLI`, `filebot`, `libpam0g-dev`), please refer to the:
 
-👉 **[Deployment Guide](deployment.md)**
+### 1. Prerequisites
+Ensure your system meets the following requirements:
+- **Node.js** (v18.x or higher recommended):
+  ```bash
+  # Using NodeSource for the latest LTS
+  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+  sudo apt install -y nodejs
+  ```
+- **Linux Environment** (Ubuntu/Debian recommended)
+- **PAM Development Headers** (Required for authentication):
+  ```bash
+  sudo apt update
+  sudo apt install libpam0g-dev build-essential
+  ```
+- **Optional Processing Tools**:
+  - `HandBrakeCLI`: `sudo apt install handbrake-cli`
+  - `ffmpeg` & `ffprobe`: `sudo apt install ffmpeg`
+  - `filebot`: Follow [official instructions](https://www.filebot.net/linux/apt.html) to add their repository.
+
+### 2. Quick Start
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd grab
+   ```
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+3. **Configure Environment** (Optional):
+   Create a `.env` file or set environment variables:
+   - `PORT`: Server port (default: 2026)
+   - `ADMIN_PASSWORD`: Default admin password for the panel.
+
+4. **Set Permissions**:
+   Ensure the script and directories are writable:
+   ```bash
+   chmod +x grab.sh
+   mkdir -p __STAGING__ __OUTPUTS__
+   chmod -R 777 __STAGING__ __OUTPUTS__
+   ```
+
+### 3. Running with PM2 (Recommended)
+PM2 ensures the server stays alive and restarts on failure:
+```bash
+# Install PM2 globally
+npm install -g pm2
+
+# Start the application
+pm2 start index.js --name "grab-ui"
+
+# Ensure it starts on system boot
+pm2 save
+pm2 startup
+```
+
+### 4. Management Commands
+- **Logs:** `pm2 logs grab-ui`
+- **Restart:** `pm2 restart grab-ui`
+- **Stop:** `pm2 stop grab-ui`
+- **Monitor:** `pm2 monit`
+
+The web interface will be available at `http://your-server-ip:2026`.
 
 ---
 *Note: This tool is intended for personal media management and organization.*

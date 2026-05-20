@@ -144,22 +144,24 @@ download_file() {
 
   echo "[DL] Connecting..."
 
-  if wget -c \
-    -e robots=off \
-    --content-disposition \
-    --trust-server-names \
-    --wait=10 \
-    --random-wait \
-    --tries=3 \
-    --timeout=15 \
-    --dns-timeout=10 \
-    --connect-timeout=10 \
-    --read-timeout=15 \
-    --retry-on-http-error=429,500,502,503,504 \
-    --header="User-Agent: Mozilla/5.0" \
-    --header="Referer: $u" \
-    -P "$STAGING_DIR" \
-    "$u"; then
+    if wget -c \
+      -e robots=off \
+      --content-disposition \
+      --trust-server-names \
+      --show-progress \
+      --progress=dot:mega \
+      --wait=10 \
+      --random-wait \
+      --tries=3 \
+      --timeout=15 \
+      --dns-timeout=10 \
+      --connect-timeout=10 \
+      --read-timeout=15 \
+      --retry-on-http-error=429,500,502,503,504 \
+      --header="User-Agent: Mozilla/5.0" \
+      --header="Referer: $u" \
+      -P "$STAGING_DIR" \
+      "$u" 2>&1 | stdbuf -oL sed -u -e 's/.* \([0-9]\+\)% .*/[DL_PROGRESS] \1%/'; then
 
     downloaded=$(find "$STAGING_DIR" -maxdepth 1 -type f -newer "$ref_file" ! -name "$(basename "$ref_file")" -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
     
