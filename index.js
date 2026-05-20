@@ -15,28 +15,66 @@ const io = new Server(server);
 
 const MEMORY_FILE = path.join(__dirname, 'memory.json');
 
-// Default State
+// Global Application State
 let state = {
-    currentConfig: { 
-        type: 'movie', 
-        url: '', 
-        useFilebot: false, 
-        useHandbrake: false,
-        fbAutoPick: true 
-    },
     featuresEnabled: { filebot: true, handbrake: true },
-    adminPassword: process.env.ADMIN_PASSWORD || 'admin123'
+    adminPassword: process.env.ADMIN_PASSWORD || 'admin123',
+    userConfigs: {}
 };
 
+// Global State per User (Transient)
+let userStates = {};
+
+function getUserState(username) {
+    if (!state.userConfigs[username]) {
+        state.userConfigs[username] = { 
+            type: 'movie', 
+            url: '', 
+            useFilebot: false, 
+            useHandbrake: false,
+            fbAutoPick: true 
+        };
+    }
+
+    if (!userStates[username]) {
+        userStates[username] = {
+            shell: null,
+            logHistory: '',
+            currentConfig: state.userConfigs[username]
+        };
+    }
+    return userStates[username];
+}
+
+function getUserPaths(username) {
+    const staging = path.join(__dirname, '__STAGING__', username);
+    const outputs = path.join(__dirname, '__OUTPUTS__', username);
+    if (!fs.existsSync(staging)) fs.mkdirSync(staging, { recursive: true, mode: 0o777 });
+    if (!fs.existsSync(outputs)) fs.mkdirSync(outputs, { recursive: true, mode: 0o777 });
+    
+    // Ensure existing folders also get permissive permissions
+    try {
+        fs.chmodSync(staging, 0o777);
+        fs.chmodSync(outputs, 0o777);
+    } catch (e) {
+        // Ignore errors on platforms that don't support chmod (like some Windows setups)
+    }
+    
+    return { staging, outputs };
+}
+
 function saveState() {
-    try { fs.writeFileSync(MEMORY_FILE, JSON.stringify(state, null, 2)); }
+    try { 
+        fs.writeFileSync(MEMORY_FILE, JSON.stringify(state, null, 2));
+        fs.chmodSync(MEMORY_FILE, 0o666);
+    }
     catch (e) { console.error('Error saving memory.json'); }
 }
 
 if (fs.existsSync(MEMORY_FILE)) {
     try {
         const savedState = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf8'));
-        if (savedState.currentConfig) state.currentConfig = { ...state.currentConfig, ...savedState.currentConfig };
+        if (savedState.userConfigs) state.userConfigs = savedState.userConfigs;
         if (savedState.featuresEnabled) state.featuresEnabled = { ...state.featuresEnabled, ...savedState.featuresEnabled };
         if (savedState.adminPassword) state.adminPassword = savedState.adminPassword;
         saveState();
@@ -88,16 +126,18 @@ const isAuthenticated = (req, res, next) => {
 
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
+    const normalizedUser = username.toLowerCase();
     try {
-        pam.authenticate(username, password, (err) => {
+        pam.authenticate(normalizedUser, password, (err) => {
             if (err) return res.status(401).send('Authentication failed');
             req.session.authenticated = true;
-            req.session.username = username;
+            req.session.username = normalizedUser;
             res.redirect('/');
         });
     } catch (e) {
         if (process.platform === 'win32') {
             req.session.authenticated = true;
+            req.session.username = normalizedUser || 'guest';
             res.redirect('/');
         } else res.status(500).send('Authentication error');
     }
@@ -111,9 +151,6 @@ app.get('/logout', (req, res) => {
 app.get('/', isAuthenticated, (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
 app.get('/admin.html', isAuthenticated, (req, res) => res.sendFile(path.join(__dirname, 'public/admin.html')));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
-
-let shell = null;
-let logHistory = '';
 
 function getTree(dirPath) {
     if (!fs.existsSync(dirPath)) return [];
@@ -136,19 +173,27 @@ io.on('connection', (socket) => {
         return;
     }
 
+    const username = session.username;
+    socket.join(username);
+
+    const userState = getUserState(username);
+    const userPaths = getUserPaths(username);
+
     socket.emit('init-state', {
-        config: state.currentConfig,
-        logs: logHistory,
-        isRunning: !!shell,
+        config: userState.currentConfig,
+        logs: userState.logHistory,
+        isRunning: !!userState.shell,
         features: state.featuresEnabled
     });
 
-    socket.emit('user-info', session.username);
+    socket.emit('user-info', username);
 
     socket.on('get-file-details', (data) => {
         const { root, filePath } = data;
-        const fullPath = path.join(__dirname, root === 'staging' ? '__STAGING__' : '__OUTPUTS__', filePath);
-        if (!fullPath.startsWith(path.join(__dirname, '__STAGING__')) && !fullPath.startsWith(path.join(__dirname, '__OUTPUTS__'))) return;
+        const rootPath = root === 'staging' ? userPaths.staging : userPaths.outputs;
+        const fullPath = path.join(rootPath, filePath);
+        
+        if (!fullPath.startsWith(rootPath)) return;
         if (!fs.existsSync(fullPath) || fs.lstatSync(fullPath).isDirectory()) return;
 
         const stats = fs.statSync(fullPath);
@@ -158,7 +203,8 @@ io.on('connection', (socket) => {
                 name: path.basename(fullPath), 
                 path: path.relative(path.dirname(__dirname), fullPath),
                 size: formatBytes(stats.size), 
-                error: 'Metadata probe failed' 
+                error: 'Metadata probe failed',
+                root, filePath
             });
             try {
                 const info = JSON.parse(stdout);
@@ -172,14 +218,14 @@ io.on('connection', (socket) => {
                     container: info.format.format_long_name,
                     width: video.width, height: video.height, fps: video.r_frame_rate,
                     audio_bitrate: audio.bit_rate ? formatBytes(parseInt(audio.bit_rate)) + '/s' : 'N/A',
-                    channels: audio.channels, sample_rate: audio.sample_rate ? (audio.sample_rate / 1000) + ' kHz' : 'N/A'
+                    channels: audio.channels, sample_rate: audio.sample_rate ? (audio.sample_rate / 1000) + ' kHz' : 'N/A',
+                    root, filePath
                 });
-            } catch (e) { socket.emit('file-details', { name: path.basename(fullPath), size: formatBytes(stats.size), error: 'Metadata parsing failed' }); }
+            } catch (e) { socket.emit('file-details', { name: path.basename(fullPath), size: formatBytes(stats.size), error: 'Metadata parsing failed', root, filePath }); }
         });
     });
 
     socket.on('admin-login', (pass) => {
-        const username = socket.request.session ? socket.request.session.username : null;
         if (username === 'andromeda' || pass === state.adminPassword) {
             socket.emit('login-success', state.featuresEnabled);
         } else {
@@ -188,7 +234,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('update-features', (data) => {
-        const username = socket.request.session ? socket.request.session.username : null;
         if (username === 'andromeda' || data.pass === state.adminPassword) {
             state.featuresEnabled = data.features;
             saveState();
@@ -205,21 +250,23 @@ io.on('connection', (socket) => {
     });
 
     socket.on('update-config', (config) => {
-        state.currentConfig = { ...state.currentConfig, ...config };
+        state.userConfigs[username] = { ...state.userConfigs[username], ...config };
+        userState.currentConfig = state.userConfigs[username];
         saveState();
-        socket.broadcast.emit('config-updated', state.currentConfig);
+        io.to(username).emit('config-updated', userState.currentConfig);
     });
 
-    socket.on('resize', (size) => { if (shell) shell.resize(size.cols, size.rows); });
+    socket.on('resize', (size) => { if (userState.shell) userState.shell.resize(size.cols, size.rows); });
 
     socket.on('run-command', (config) => {
-        if (shell) return;
-        state.currentConfig = config;
+        if (userState.shell) return;
+        state.userConfigs[username] = { ...state.userConfigs[username], ...config };
+        userState.currentConfig = state.userConfigs[username];
         saveState();
-        socket.broadcast.emit('config-updated', state.currentConfig);
-        logHistory = '[System] Starting process...\n';
-        io.emit('clear-terminal');
-        io.emit('output', logHistory);
+        io.to(username).emit('config-updated', userState.currentConfig);
+        userState.logHistory = `[System] Starting process for user: ${username}...\n`;
+        io.to(username).emit('clear-terminal');
+        io.to(username).emit('output', userState.logHistory);
 
         const { type, url, fbAutoPick } = config;
         let { useFilebot, useHandbrake } = config;
@@ -227,58 +274,90 @@ io.on('connection', (socket) => {
         if (!state.featuresEnabled.filebot) useFilebot = false;
         if (!state.featuresEnabled.handbrake) useHandbrake = false;
 
-        shell = pty.spawn('bash', ['grab.sh'], {
+        userState.shell = pty.spawn('bash', ['grab.sh'], {
             name: 'xterm-color', 
             cols: parseInt(config.cols) || 80, 
             rows: parseInt(config.rows) || 24,
-            cwd: process.cwd(), env: process.env
+            cwd: process.cwd(), 
+            env: {
+                ...process.env,
+                STAGING_DIR_OVERRIDE: userPaths.staging,
+                OUTPUT_DIR_OVERRIDE: userPaths.outputs
+            }
         });
 
-        shell.onData((data) => {
-            logHistory += data;
-            if (logHistory.length > 50000) logHistory = logHistory.slice(-50000);
-            io.emit('output', data);
+        userState.shell.onData((data) => {
+            userState.logHistory += data;
+            if (userState.logHistory.length > 50000) userState.logHistory = userState.logHistory.slice(-50000);
+            io.to(username).emit('output', data);
         });
 
-        shell.onExit(({ exitCode }) => {
+        userState.shell.onExit(({ exitCode }) => {
             const msg = `\r\n\x1b[32m[System] Process finished with exit code ${exitCode}\x1b[0m\r\n`;
-            logHistory += msg; io.emit('output', msg);
-            shell = null; io.emit('process-exit');
-            io.emit('tree-data', { staging: getTree(path.join(__dirname, '__STAGING__')), outputs: getTree(path.join(__dirname, '__OUTPUTS__')) });
+            userState.logHistory += msg; 
+            io.to(username).emit('output', msg);
+            userState.shell = null; 
+            io.to(username).emit('process-exit');
+            io.to(username).emit('tree-data', { 
+                staging: getTree(userPaths.staging), 
+                outputs: getTree(userPaths.outputs) 
+            });
         });
 
         setTimeout(() => {
-            if (!shell) return;
-            shell.write(useFilebot ? 'y\n' : 'n\n');
+            if (!userState.shell) return;
+            userState.shell.write(useFilebot ? 'y\n' : 'n\n');
             if (useFilebot) {
-                shell.write(fbAutoPick ? 'y\n' : 'n\n');
-                shell.write(type === 'filebot-only' ? 'y\n' : 'n\n');
+                userState.shell.write(fbAutoPick ? 'y\n' : 'n\n');
+                userState.shell.write(type === 'filebot-only' ? 'y\n' : 'n\n');
             }
             if (type !== 'filebot-only') {
-                shell.write(useHandbrake ? 'y\n' : 'n\n');
-                if (useHandbrake) shell.write(type === 'transcode-only' ? 'y\n' : 'n\n');
+                userState.shell.write(useHandbrake ? 'y\n' : 'n\n');
+                if (useHandbrake) userState.shell.write(type === 'transcode-only' ? 'y\n' : 'n\n');
                 if (type !== 'transcode-only') {
-                    shell.write(type === 'movie' ? 'M\n' : 'S\n');
-                    shell.write(`${url}\n`);
+                    userState.shell.write(type === 'movie' ? 'M\n' : 'S\n');
+                    userState.shell.write(`${url}\n`);
                 }
             }
         }, 500);
     });
 
-    socket.on('get-tree', () => io.emit('tree-data', { staging: getTree(path.join(__dirname, '__STAGING__')), outputs: getTree(path.join(__dirname, '__OUTPUTS__')) }));
-    socket.on('input', (data) => { if (shell) shell.write(data); });
+    socket.on('get-tree', () => {
+        io.to(username).emit('tree-data', { 
+            staging: getTree(userPaths.staging), 
+            outputs: getTree(userPaths.outputs) 
+        });
+    });
+    
+    socket.on('input', (data) => { if (userState.shell) userState.shell.write(data); });
     socket.on('kill', () => {
-        if (shell) {
-            shell.kill(); shell = null;
+        if (userState.shell) {
+            userState.shell.kill(); 
+            userState.shell = null;
             const msg = '\r\n\x1b[31m[System] Process killed by user.\x1b[0m\r\n';
-            logHistory += msg; io.emit('output', msg); io.emit('process-exit');
+            userState.logHistory += msg; 
+            io.to(username).emit('output', msg); 
+            io.to(username).emit('process-exit');
         }
+    });
+
+    // Periodic tree refresh for this user's active session
+    const treeInterval = setInterval(() => {
+        socket.emit('tree-data', { 
+            staging: getTree(userPaths.staging), 
+            outputs: getTree(userPaths.outputs) 
+        });
+    }, 10000);
+
+    socket.on('disconnect', () => {
+        clearInterval(treeInterval);
+        socket.leave(username);
     });
 });
 
 const PORT = process.env.PORT || 2026;
 server.listen(PORT, '0.0.0.0', () => {
-    setInterval(() => io.emit('tree-data', { staging: getTree(path.join(__dirname, '__STAGING__')), outputs: getTree(path.join(__dirname, '__OUTPUTS__')) }), 10000);
+    console.log(`Server running on port ${PORT}`);
 });
 
 // END OF FILE

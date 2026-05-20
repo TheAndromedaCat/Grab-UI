@@ -3,17 +3,19 @@
 
 set -uo pipefail
 IFS=$'\n\t'
+umask 000
 
 # ---------- PATHS ----------
 WORKDIR="$(realpath "$(pwd)")"
-OUTPUT_DIR="$WORKDIR/__OUTPUTS__"
-STAGING_DIR="$WORKDIR/__STAGING__"
+OUTPUT_DIR="${OUTPUT_DIR_OVERRIDE:-$WORKDIR/__OUTPUTS__}"
+STAGING_DIR="${STAGING_DIR_OVERRIDE:-$WORKDIR/__STAGING__}"
 TMP_ROOT="/tmp/handbrake_safe"
 
 TV_DIR="$OUTPUT_DIR/TV Shows"
 MOVIE_DIR="$OUTPUT_DIR/Movies"
 
 mkdir -p "$OUTPUT_DIR" "$STAGING_DIR" "$TMP_ROOT" "$TV_DIR" "$MOVIE_DIR"
+chmod -R 777 "$OUTPUT_DIR" "$STAGING_DIR" 2>/dev/null || true
 
 # ---------- DEP CHECK ----------
 need_cmd() {
@@ -523,11 +525,22 @@ if ! $CONVERT_ONLY; then
 
         sorted_links=$(
           printf "%s\n" "${episode_links[@]}" | awk '
-            /1080p/ {print "1|"$0; next}
-            /720p/  {print "2|"$0; next}
-            /480p/  {print "3|"$0; next}
-            {print "9|"$0}
-          ' | sort -t'|' -k1,1n | cut -d'|' -f2-
+            {
+              # Resolution rank: 2160p=0, 1080p=1, 720p=2, 480p=3, others=9
+              r=9; a=1;
+              l=tolower($0);
+              if (l ~ /2160p/) r=0;
+              else if (l ~ /1080p/) r=1;
+              else if (l ~ /720p/) r=2;
+              else if (l ~ /480p/) r=3;
+              
+              # Audio rank: 5.1/7.1/DDP/AC3/EAC3/DTS=0, others=1, 2.0=2
+              if (l ~ /[57]\.1|ddp|ac3|dts|eac3|truehd/) a=0;
+              else if (l ~ /2\.0/) a=2;
+              
+              print r "|" a "|" $0
+            }
+          ' | sort -t"|" -k1,1n -k2,2n | cut -d"|" -f3-
         )
 
         while IFS= read -r link; do
