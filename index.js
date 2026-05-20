@@ -215,6 +215,26 @@ function getTree(dirPath, filterFn = null) {
     } catch (e) { return []; }
 }
 
+function findActiveProject(projectName) {
+    if (!projectName) return null;
+    for (const u in userStates) {
+        const slot = userStates[u].slots.find(s => s.shell && s.currentConfig && s.currentConfig.project === projectName);
+        if (slot) return { username: u, slot };
+    }
+    return null;
+}
+
+function broadcastToProject(project, event, data) {
+    if (!project) return;
+    for (const u in userStates) {
+        userStates[u].slots.forEach((s, i) => {
+            if (s.currentConfig && s.currentConfig.project === project) {
+                io.to(u).emit(event, { ...data, index: i });
+            }
+        });
+    }
+}
+
 io.on('connection', (socket) => {
     const session = socket.request.session;
     if (!session || !session.authenticated) {
@@ -244,11 +264,27 @@ io.on('connection', (socket) => {
     }
 
     socket.emit('init-state', {
-        slots: userState.slots.map(s => ({
-            config: s.currentConfig,
-            logs: s.logHistory,
-            isRunning: !!s.shell
-        })),
+        slots: userState.slots.map(s => {
+            const project = s.currentConfig.project;
+            let isRunning = !!s.shell;
+            let logs = s.logHistory;
+            let config = s.currentConfig;
+
+            if (project && !isRunning) {
+                const active = findActiveProject(project);
+                if (active) {
+                    isRunning = true;
+                    logs = active.slot.logHistory;
+                    config = active.slot.currentConfig;
+                }
+            }
+
+            return {
+                config,
+                logs,
+                isRunning
+            };
+        }),
         features: state.featuresEnabled,
         adminUsername: state.adminUsername,
         topDir: path.basename(__dirname),
@@ -483,13 +519,55 @@ io.on('connection', (socket) => {
     socket.on('update-config', (data) => {
         const { index, config } = data;
         if (!userState.slots[index]) return;
+        
+        const oldProject = userState.slots[index].currentConfig.project;
+        const newProject = config.project;
+
         state.userConfigs[username][index] = { ...state.userConfigs[username][index], ...config };
         userState.slots[index].currentConfig = state.userConfigs[username][index];
+
+        if (newProject && newProject !== oldProject) {
+            const active = findActiveProject(newProject);
+            if (active) {
+                userState.slots[index].currentConfig = { ...active.slot.currentConfig };
+                io.to(username).emit('config-updated', { index, config: userState.slots[index].currentConfig });
+                io.to(username).emit('clear-terminal', { index });
+                io.to(username).emit('output', { index, data: active.slot.logHistory });
+                socket.emit('process-running', { index });
+            } else if (oldProject) {
+                // If moving away from a running project, user's slot is no longer running
+                const activeOld = findActiveProject(oldProject);
+                if (activeOld) socket.emit('process-exit', { index });
+            }
+        }
+
         saveState();
-        io.to(username).emit('config-updated', { index, config: userState.slots[index].currentConfig });
+        if (newProject) {
+            broadcastToProject(newProject, 'config-updated', { config: userState.slots[index].currentConfig });
+        } else {
+            io.to(username).emit('config-updated', { index, config: userState.slots[index].currentConfig });
+        }
     });
 
-    socket.on('resize', (data) => { 
+    socket.on('clear-logs', (data) => {
+        const { index } = data;
+        let slot = userState.slots[index];
+        if (!slot) return;
+        
+        const project = slot.currentConfig.project;
+        if (project) {
+            const active = findActiveProject(project);
+            const targetSlot = active ? active.slot : slot;
+            targetSlot.logHistory = '';
+            broadcastToProject(project, 'clear-terminal', {});
+        } else {
+            slot.logHistory = '';
+            io.to(username).emit('clear-terminal', { index });
+        }
+    });
+
+    socket.on('resize', (data) => {
+ 
         const { index, cols, rows } = data;
         if (userState.slots[index] && userState.slots[index].shell) {
             userState.slots[index].shell.resize(cols, rows); 
@@ -505,17 +583,19 @@ io.on('connection', (socket) => {
         slot.currentConfig = state.userConfigs[username][index];
         saveState();
         
-        io.to(username).emit('config-updated', { index, config: slot.currentConfig });
-        slot.logHistory = `[System] Starting process in slot ${index + 1} for user: ${username}...\n`;
-        io.to(username).emit('clear-terminal', { index });
-        io.to(username).emit('output', { index, data: slot.logHistory });
-
         const { type, url, fbAutoPick, project } = config;
         let { useFilebot, useHandbrake } = config;
 
         const isAdmin = state.adminUsername && username === state.adminUsername;
 
         if (project) {
+            // Check if already running
+            const active = findActiveProject(project);
+            if (active) {
+                const msg = `\r\n\x1b[31m[System] Error: A process for project "${project}" is already running.\x1b[0m\r\n`;
+                return io.to(username).emit('output', { index, data: msg });
+            }
+
             // Check if project name is someone else's username
             if (state.userConfigs[project] && project !== username && !isAdmin) {
                 const msg = `\r\n\x1b[31m[System] Error: Cannot use another user's name "${project}" as a project name.\x1b[0m\r\n`;
@@ -536,6 +616,18 @@ io.on('connection', (socket) => {
                 const msg = `\r\n\x1b[31m[System] Error: Access denied to project "${project}".\x1b[0m\r\n`;
                 return io.to(username).emit('output', { index, data: msg });
             }
+        }
+
+        io.to(username).emit('config-updated', { index, config: slot.currentConfig });
+        slot.logHistory = `[System] Starting process in slot ${index + 1} for user: ${username}...\n`;
+        
+        if (project) {
+            broadcastToProject(project, 'clear-terminal', {});
+            broadcastToProject(project, 'output', { data: slot.logHistory });
+            broadcastToProject(project, 'process-running', {});
+        } else {
+            io.to(username).emit('clear-terminal', { index });
+            io.to(username).emit('output', { index, data: slot.logHistory });
         }
 
         if (!state.featuresEnabled.filebot) useFilebot = false;
@@ -562,15 +654,24 @@ io.on('connection', (socket) => {
         slot.shell.onData((d) => {
             slot.logHistory += d;
             if (slot.logHistory.length > 50000) slot.logHistory = slot.logHistory.slice(-50000);
-            io.to(username).emit('output', { index, data: d });
+            if (project) {
+                broadcastToProject(project, 'output', { data: d });
+            } else {
+                io.to(username).emit('output', { index, data: d });
+            }
         });
 
         slot.shell.onExit(({ exitCode }) => {
             const msg = `\r\n\x1b[32m[System] Process finished with exit code ${exitCode}\x1b[0m\r\n`;
             slot.logHistory += msg; 
-            io.to(username).emit('output', { index, data: msg });
+            if (project) {
+                broadcastToProject(project, 'output', { data: msg });
+                broadcastToProject(project, 'process-exit', {});
+            } else {
+                io.to(username).emit('output', { index, data: msg });
+                io.to(username).emit('process-exit', { index });
+            }
             slot.shell = null; 
-            io.to(username).emit('process-exit', { index });
             emitUserTree(username);
         });
 
@@ -596,25 +697,49 @@ io.on('connection', (socket) => {
         emitUserTree(username);
     });
     
-    socket.on('input', (data) => { 
+    socket.on('input', (data) => {
         const { index, input } = data;
-        if (userState.slots[index] && userState.slots[index].shell) {
-            userState.slots[index].shell.write(input); 
+        const slot = userState.slots[index];
+        if (!slot) return;
+
+        let targetSlot = slot;
+        if (slot.currentConfig.project) {
+            const active = findActiveProject(slot.currentConfig.project);
+            if (active) targetSlot = active.slot;
+        }
+
+        if (targetSlot && targetSlot.shell) {
+            targetSlot.shell.write(input);
         }
     });
 
     socket.on('kill', (index) => {
         const slot = userState.slots[index];
-        if (slot && slot.shell) {
-            slot.shell.kill(); 
-            slot.shell = null;
+        if (!slot) return;
+
+        let targetSlot = slot;
+        let project = slot.currentConfig.project;
+
+        if (project) {
+            const active = findActiveProject(project);
+            if (active) targetSlot = active.slot;
+        }
+
+        if (targetSlot && targetSlot.shell) {
+            targetSlot.shell.kill();
+            targetSlot.shell = null;
             const msg = '\r\n\x1b[31m[System] Process killed by user.\x1b[0m\r\n';
-            slot.logHistory += msg; 
-            io.to(username).emit('output', { index, data: msg }); 
-            io.to(username).emit('process-exit', { index });
+            targetSlot.logHistory += msg;
+
+            if (project) {
+                broadcastToProject(project, 'output', { data: msg });
+                broadcastToProject(project, 'process-exit', {});
+            } else {
+                io.to(username).emit('output', { index, data: msg });
+                io.to(username).emit('process-exit', { index });
+            }
         }
     });
-
     // Periodic tree refresh
     const treeInterval = setInterval(() => {
         emitUserTree(username);

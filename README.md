@@ -41,10 +41,15 @@ Grab UI includes a robust project ownership and permission system designed to ke
 
 ### How it Works
 1. **Ownership:** The first user to start a session with a specific "Project" name becomes the owner of that project.
-2. **Access Control:** 
+2. **Real-Time Collaboration & Synchronization:**
+   - **One Process Per Project:** To ensure data integrity, only one instance of `grab.sh` can run per project at any time.
+   - **Shared Sessions:** If a user selects a project that is already running (started by another authorized user), they automatically join the active session.
+   - **Live Sync:** All users watching the same project receive synchronized terminal output, real-time configuration updates, and shared control (input prompts and process termination).
+   - **Session Persistence:** Log history and process status are maintained globally for projects, allowing users to reconnect and see the current state immediately.
+3. **Access Control:** 
    - Owners can manage project access by clicking the **Project ﹢** label in their session card.
    - This opens a modal where they can **Add** or **Remove** other Linux users by their username.
-3. **Visibility:**
+4. **Visibility:**
    - **UI Filtering:** Users only see folders in the staging/outputs tree that they own or have been granted access to.
    - **System Integrity:** The UI prevents users from "hijacking" another user's name as a project name.
 

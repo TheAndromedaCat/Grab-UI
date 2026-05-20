@@ -21,8 +21,8 @@
         .terminal-scroll-area { flex: 1; overflow: auto; background-color: #000; display: block; -webkit-overflow-scrolling: touch; }
         .terminal-container { padding: 15px; min-width: 800px; width: 100%; height: 100%; }
         .terminal-footer { background-color: #1a1a1a; border-top: 2px solid #444; padding: 5px 15px; display: flex; justify-content: space-between; align-items: center; min-height: 45px; flex-shrink: 0; }
-        .fb-prompt-floating { position: absolute; top: 10px; right: 15px; z-index: 100; background: rgba(30, 30, 30, 0.9); padding: 5px 12px; border: 1px solid #444; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: none !important; align-items: center; gap: 10px; border-top: 2px solid #8be9fd; }
-        .fb-dropdown { background-color: #2d2d2d; border: 1px solid #444; color: #8be9fd; font-size: 0.85em; padding: 2px 8px; border-radius: 4px; max-width: 300px; }
+        .fb-prompt-floating { position: absolute; bottom: 0; left: 0; right: 0; z-index: 100; background: #1a1a1a; padding: 5px 15px; border-top: 2px solid #8be9fd; display: none !important; align-items: center; gap: 10px; height: 45px; }
+        .fb-dropdown { background-color: #2d2d2d; border: 1px solid #444; color: #8be9fd; font-size: 0.85em; padding: 2px 8px; border-radius: 4px; max-width: 400px; flex-grow: 1; }
         .scroll-to-bottom { color: #8be9fd; text-decoration: none; font-size: 0.85em; font-weight: bold; }
         .terminal-scroll-area::-webkit-scrollbar, .xterm-viewport::-webkit-scrollbar { width: 12px; height: 12px; }
         .terminal-scroll-area::-webkit-scrollbar-track, .xterm-viewport::-webkit-scrollbar-track { background: #000; }
@@ -218,15 +218,45 @@
             if (cleanData.includes('[✓] Download complete') || cleanData.includes('[✗] Download failed') || cleanData.includes('[Skip]')) {
                 setTimeout(() => {
                     document.getElementById(`dl-progress-area-${data.index}`).style.setProperty('display', 'none', 'important');
+                    updateClearButtonVisibility(data.index);
                 }, 2000);
             }
 
             slot.term.write(cleanData);
             if (slot.isAtBottom) slot.term.scrollToBottom();
 
-            setTimeout(() => checkFileBotPrompt(data.index), 50);
+            setTimeout(() => {
+                checkFileBotPrompt(data.index);
+                updateClearButtonVisibility(data.index);
+            }, 50);
         }
     });
+
+    function updateClearButtonVisibility(index) {
+        const slot = slots[index];
+        const clearBtn = document.getElementById(`clear-btn-${index}`);
+        const dlProgressArea = document.getElementById(`dl-progress-area-${index}`);
+        const fbPromptArea = document.getElementById(`fb-prompt-area-${index}`);
+        if (!clearBtn || !slot) return;
+        
+        const isDlShowing = dlProgressArea && dlProgressArea.style.display === 'flex';
+        const isFbShowing = fbPromptArea && fbPromptArea.style.display === 'flex';
+        
+        if (!slot.isRunning && !isDlShowing && !isFbShowing) {
+            clearBtn.style.setProperty('display', 'inline-block', 'important');
+        } else {
+            clearBtn.style.setProperty('display', 'none', 'important');
+        }
+    }
+
+    function clearTerminal(index) {
+        const slot = slots[index];
+        if (slot && slot.term) {
+            slot.term.clear();
+            slot.term.reset();
+            socket.emit('clear-logs', { index });
+        }
+    }
 
     function updateDownloadProgress(index, percent) {
         const bar = document.getElementById(`dl-bar-${index}`);
@@ -234,7 +264,10 @@
         const area = document.getElementById(`dl-progress-area-${index}`);
         if (bar) bar.style.width = percent + '%';
         if (text) text.innerText = percent + '%';
-        if (area) area.style.setProperty('display', 'flex', 'important');
+        if (area && area.style.display !== 'flex') {
+            area.style.setProperty('display', 'flex', 'important');
+            updateClearButtonVisibility(index);
+        }
     }
 
     function checkFileBotPrompt(index) {
@@ -262,6 +295,7 @@
                 '<option value="\n">Skip</option>';
             select.dataset.type = 'mode';
             promptArea.style.setProperty('display', 'flex', 'important');
+            updateClearButtonVisibility(index);
             return;
         }
 
@@ -281,6 +315,7 @@
                     options.map(o => `<option value="${o.val}">${o.label}</option>`).join('');
                 select.dataset.type = 'choice';
                 promptArea.style.setProperty('display', 'flex', 'important');
+                updateClearButtonVisibility(index);
                 return;
             }
         }
@@ -288,6 +323,7 @@
         if (promptArea.style.display === 'flex' && !fullText.includes('Choice:') && !fullText.includes('Type?')) {
             promptArea.style.setProperty('display', 'none', 'important');
             select.dataset.type = '';
+            updateClearButtonVisibility(index);
         }
     }
 
@@ -300,6 +336,7 @@
         document.getElementById(`fb-prompt-area-${index}`).style.setProperty('display', 'none', 'important');
         select.dataset.type = '';
         select.value = '';
+        updateClearButtonVisibility(index);
     }
 
     socket.on('clear-terminal', (data) => {
@@ -310,9 +347,22 @@
     socket.on('process-exit', (data) => {
         const slot = slots[data.index];
         if (slot) {
+            slot.isRunning = false;
             document.getElementById(`run-btn-${data.index}`).disabled = false;
             document.getElementById(`kill-btn-${data.index}`).disabled = true;
             document.getElementById(`slot-card-${data.index}`).classList.remove('running');
+            updateClearButtonVisibility(data.index);
+        }
+    });
+
+    socket.on('process-running', (data) => {
+        const slot = slots[data.index];
+        if (slot) {
+            slot.isRunning = true;
+            document.getElementById(`run-btn-${data.index}`).disabled = true;
+            document.getElementById(`kill-btn-${data.index}`).disabled = false;
+            document.getElementById(`slot-card-${data.index}`).classList.add('running');
+            updateClearButtonVisibility(data.index);
         }
     });
 
@@ -354,7 +404,8 @@
                     </div>
                     <div class="terminal-scroll-area"><div id="term-${i}" class="terminal-container"></div></div>
                     <div class="terminal-footer">
-                        <div class="d-flex align-items-center gap-3 flex-grow-1">
+                        <div class="d-flex align-items-center gap-2 flex-grow-1">
+                            <button id="clear-btn-${i}" class="btn btn-outline-secondary btn-sm" onclick="clearTerminal(${i})" style="display: none;">Clear Console</button>
                             <div id="dl-progress-area-${i}" class="d-flex align-items-center gap-2 flex-grow-1 me-3" style="display: none !important; min-width: 0;">
                                 <span class="small text-info text-nowrap" id="dl-name-${i}" style="flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0;">Downloading...</span>
                                 <div class="progress" style="height: 10px; background-color: #333; width: 100px; flex-shrink: 0;">
@@ -378,8 +429,9 @@
             if (s.logs) term.write(s.logs);
             if (s.isRunning) document.getElementById(`run-btn-${i}`).disabled = true;
 
-            const slotObj = { term, fitAddon, isAtBottom: true, config: s.config };
+            const slotObj = { term, fitAddon, isAtBottom: true, config: s.config, isRunning: s.isRunning };
             slots.push(slotObj);
+            updateClearButtonVisibility(i);
 
             term.onScroll(() => {
                 const buffer = term.buffer.active;
@@ -438,6 +490,8 @@
         document.getElementById(`run-btn-${index}`).disabled = true;
         document.getElementById(`kill-btn-${index}`).disabled = false;
         document.getElementById(`slot-card-${index}`).classList.add('running');
+        slot.isRunning = true;
+        updateClearButtonVisibility(index);
     }
 
     function killCommand(index) { socket.emit('kill', index); }
