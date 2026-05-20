@@ -7,6 +7,7 @@ Grab UI is a powerful, web-based media automation tool that combines a robust sh
     - [📡 Smart Scraping & Downloading](#-smart-scraping--downloading-grabsh)
     - [⚙️ Media Processing Engine](#️-media-processing-engine)
     - [🌐 Advanced Web Interface](#-advanced-web-interface-indexjs--ui)
+- [📁 Project Management & Security](#-project-management--security)
 - [🔐 Security & Authentication](#-security--authentication)
 - [🛠 Installation & Deployment](#-installation--deployment)
     - [1. Prerequisites](#1-prerequisites)
@@ -34,6 +35,24 @@ Grab UI is a powerful, web-based media automation tool that combines a robust sh
 - **Live Library Explorer:** Real-time tree view of `__STAGING__` and `__OUTPUTS__` directories with automated refreshes.
 - **Deep File Inspection:** Built-in `ffprobe` integration to view detailed file metadata (bitrate, codecs, resolution) on click.
 - **Admin Panel:** Global toggle for FileBot/HandBrake features and system-wide settings management.
+
+## 📁 Project Management & Security
+Grab UI includes a robust project ownership and permission system designed to keep user data private and secure, even when accessed via external services like SMB or FTP.
+
+### How it Works
+1. **Ownership:** The first user to start a session with a specific "Project" name becomes the owner of that project.
+2. **Access Control:** 
+   - Owners can manage project access by clicking the **Project ﹢** label in their session card.
+   - This opens a modal where they can **Add** or **Remove** other Linux users by their username.
+3. **Visibility:**
+   - **UI Filtering:** Users only see folders in the staging/outputs tree that they own or have been granted access to.
+   - **System Integrity:** The UI prevents users from "hijacking" another user's name as a project name.
+
+### SMB & FTP Privacy
+When a command is run, the system automatically configures the project directories on the host filesystem:
+- **Ownership:** The directory ownership is set to the user who initiated the command (`chown`).
+- **Permissions:** Directories are strictly set to `0700` (`rwx------`) using `chmod`.
+- **Impact:** This ensures that while logged in via SMB or FTP, users **cannot see or enter** folders belonging to other users or projects they aren't part of. Only the project owner and the system administrator have visibility.
 
 ## 🔐 Security & Authentication
 Grab UI integrates directly with your host system's security model:

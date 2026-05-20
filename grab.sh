@@ -15,7 +15,8 @@ TV_DIR="$OUTPUT_DIR/TV Shows"
 MOVIE_DIR="$OUTPUT_DIR/Movies"
 
 mkdir -p "$OUTPUT_DIR" "$STAGING_DIR" "$TMP_ROOT" "$TV_DIR" "$MOVIE_DIR"
-chmod -R 777 "$OUTPUT_DIR" "$STAGING_DIR" 2>/dev/null || true
+# Permissions are managed by the web UI to support multi-user isolation
+# chmod -R 777 "$OUTPUT_DIR" "$STAGING_DIR" 2>/dev/null || true
 
 # ---------- DEP CHECK ----------
 need_cmd() {

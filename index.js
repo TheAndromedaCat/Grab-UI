@@ -30,7 +30,9 @@ let state = {
     adminPassword: process.env.ADMIN_PASSWORD || 'admin123',
     adminUsername: '', // Set on first admin visit if empty
     userConfigs: {}, // { username: [slot1, slot2, slot3] }
-    userSettings: {} // { username: { localPathRoot: 'P:' } }
+    userSettings: {}, // { username: { localPathRoot: 'P:' } }
+    projectPermissions: {}, // { project: [user1, user2] }
+    projectOwners: {} // { project: ownerUsername }
 };
 
 // Global State per User (Transient)
@@ -70,15 +72,29 @@ function addSlot(username) {
     return true;
 }
 
-function getPathForTarget(target) {
+function getPathForTarget(target, username) {
     const staging = path.join(__dirname, '__STAGING__', target);
     const outputs = path.join(__dirname, '__OUTPUTS__', target);
-    if (!fs.existsSync(staging)) fs.mkdirSync(staging, { recursive: true, mode: 0o777 });
-    if (!fs.existsSync(outputs)) fs.mkdirSync(outputs, { recursive: true, mode: 0o777 });
+    
+    const isAdmin = state.adminUsername && username === state.adminUsername;
+    
+    if (!fs.existsSync(staging)) fs.mkdirSync(staging, { recursive: true });
+    if (!fs.existsSync(outputs)) fs.mkdirSync(outputs, { recursive: true });
+
+    // Permissions: 0700 (rwx------) means only the owner can see it in SMB/FTP.
+    // If the target is a project, the person who ran the command becomes the owner for now.
+    // The administrator can always see it if they are the OS root or if we set group permissions.
     try {
-        fs.chmodSync(staging, 0o777);
-        fs.chmodSync(outputs, 0o777);
-    } catch (e) {}
+        if (process.platform !== 'win32') {
+            // Set ownership to the user so they can see it in SMB/FTP
+            exec(`chown -R ${username} "${staging}" "${outputs}"`);
+            // Restrict to owner only
+            exec(`chmod -R 700 "${staging}" "${outputs}"`);
+        }
+    } catch (e) {
+        console.error('Error setting permissions:', e);
+    }
+
     return { staging, outputs };
 }
 
@@ -106,6 +122,8 @@ if (fs.existsSync(MEMORY_FILE)) {
         if (savedState.adminPassword) state.adminPassword = savedState.adminPassword;
         if (savedState.adminUsername) state.adminUsername = savedState.adminUsername;
         if (savedState.userSettings) state.userSettings = savedState.userSettings;
+        if (savedState.projectPermissions) state.projectPermissions = savedState.projectPermissions;
+        if (savedState.projectOwners) state.projectOwners = savedState.projectOwners;
         saveState();
         console.log('State loaded and synchronized');
     } catch (e) { console.error('Error loading memory.json, using defaults'); }
@@ -181,17 +199,19 @@ app.get('/', isAuthenticated, (req, res) => res.sendFile(path.join(__dirname, 'p
 app.get('/admin.html', isAuthenticated, (req, res) => res.sendFile(path.join(__dirname, 'public/admin.html')));
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-function getTree(dirPath) {
+function getTree(dirPath, filterFn = null) {
     if (!fs.existsSync(dirPath)) return [];
     try {
         const items = fs.readdirSync(dirPath, { withFileTypes: true });
-        return items.map(item => {
-            const isDirectory = item.isDirectory();
-            return {
-                name: item.name, isDirectory,
-                children: isDirectory ? getTree(path.join(dirPath, item.name)) : []
-            };
-        }).sort((a, b) => (b.isDirectory - a.isDirectory) || a.name.localeCompare(b.name));
+        return items
+            .filter(item => !filterFn || filterFn(item.name))
+            .map(item => {
+                const isDirectory = item.isDirectory();
+                return {
+                    name: item.name, isDirectory,
+                    children: isDirectory ? getTree(path.join(dirPath, item.name)) : []
+                };
+            }).sort((a, b) => (b.isDirectory - a.isDirectory) || a.name.localeCompare(b.name));
     } catch (e) { return []; }
 }
 
@@ -207,6 +227,22 @@ io.on('connection', (socket) => {
 
     const userState = getUserState(username);
 
+    function emitUserTree(targetUsername) {
+        const isAdmin = state.adminUsername && targetUsername === state.adminUsername;
+        const filter = (name) => {
+            if (isAdmin) return true;
+            if (name === targetUsername) return true;
+            if (state.projectOwners[name] === targetUsername) return true;
+            if (state.projectPermissions[name] && state.projectPermissions[name].includes(targetUsername)) return true;
+            return false;
+        };
+
+        io.to(targetUsername).emit('tree-data', {
+            staging: getTree(path.join(__dirname, '__STAGING__'), filter),
+            outputs: getTree(path.join(__dirname, '__OUTPUTS__'), filter)
+        });
+    }
+
     socket.emit('init-state', {
         slots: userState.slots.map(s => ({
             config: s.currentConfig,
@@ -216,10 +252,45 @@ io.on('connection', (socket) => {
         features: state.featuresEnabled,
         adminUsername: state.adminUsername,
         topDir: path.basename(__dirname),
-        settings: state.userSettings[username] || { localPathRoot: 'P:' }
+        settings: state.userSettings[username] || { localPathRoot: 'P:' },
+        tree: {
+            staging: getTree(path.join(__dirname, '__STAGING__'), (name) => {
+                const isAdmin = state.adminUsername && username === state.adminUsername;
+                if (isAdmin) return true;
+                if (name === username) return true;
+                if (state.projectOwners[name] === username) return true;
+                if (state.projectPermissions[name] && state.projectPermissions[name].includes(username)) return true;
+                return false;
+            }),
+            outputs: getTree(path.join(__dirname, '__OUTPUTS__'), (name) => {
+                const isAdmin = state.adminUsername && username === state.adminUsername;
+                if (isAdmin) return true;
+                if (name === username) return true;
+                if (state.projectOwners[name] === username) return true;
+                if (state.projectPermissions[name] && state.projectPermissions[name].includes(username)) return true;
+                return false;
+            })
+        }
     });
 
     socket.emit('user-info', username);
+
+    function canUserAccess(filePath) {
+        const isAdmin = state.adminUsername && username === state.adminUsername;
+        if (isAdmin) return true;
+
+        const pathParts = filePath.split(/[/\\]/);
+        const folderName = pathParts[0];
+
+        // 1. If folder is the user's own name, they have access.
+        if (folderName === username) return true;
+
+        // 2. If folder is a project, check owner and permissions.
+        if (state.projectOwners[folderName] === username) return true;
+        if (state.projectPermissions[folderName] && state.projectPermissions[folderName].includes(username)) return true;
+
+        return false;
+    }
 
     socket.on('add-slot', () => {
         if (addSlot(username)) {
@@ -258,6 +329,8 @@ io.on('connection', (socket) => {
         if (!fs.existsSync(fullPath) || fs.lstatSync(fullPath).isDirectory()) return;
 
         const stats = fs.statSync(fullPath);
+        const canDelete = canUserAccess(filePath);
+
         const cmd = `ffprobe -v quiet -print_format json -show_format -show_streams "${fullPath}"`;
         exec(cmd, (error, stdout) => {
             if (error) return socket.emit('file-details', { 
@@ -265,7 +338,7 @@ io.on('connection', (socket) => {
                 path: path.relative(__dirname, fullPath),
                 size: formatBytes(stats.size), 
                 error: 'Metadata probe failed',
-                root, filePath
+                root, filePath, canDelete
             });
             try {
                 const info = JSON.parse(stdout);
@@ -283,7 +356,7 @@ io.on('connection', (socket) => {
                         audio_bitrate: audio.bit_rate ? formatBytes(parseInt(audio.bit_rate)) + '/s' : 'N/A',
                         channels: audio.channels, sample_rate: audio.sample_rate ? (audio.sample_rate / 1000) + ' kHz' : 'N/A',
                         thumbnail,
-                        root, filePath
+                        root, filePath, canDelete
                     });
                 };
 
@@ -295,14 +368,84 @@ io.on('connection', (socket) => {
                 } else {
                     emitDetails();
                 }
-            } catch (e) { socket.emit('file-details', { name: path.basename(fullPath), size: formatBytes(stats.size), error: 'Metadata parsing failed', root, filePath }); }
+            } catch (e) { socket.emit('file-details', { name: path.basename(fullPath), size: formatBytes(stats.size), error: 'Metadata parsing failed', root, filePath, canDelete }); }
         });
+    });
+
+    socket.on('delete-file', (data) => {
+        const { root, filePath } = data;
+        const rootPath = path.join(__dirname, root === 'staging' ? '__STAGING__' : '__OUTPUTS__');
+        const fullPath = path.join(rootPath, filePath);
+
+        if (!fullPath.startsWith(rootPath)) return socket.emit('file-deleted', { success: false, message: 'Invalid path' });
+        if (!fs.existsSync(fullPath)) return socket.emit('file-deleted', { success: false, message: 'File not found' });
+        if (fs.lstatSync(fullPath).isDirectory()) return socket.emit('file-deleted', { success: false, message: 'Cannot delete directories' });
+
+        if (!canUserAccess(filePath)) {
+            return socket.emit('file-deleted', { success: false, message: 'Permission denied' });
+        }
+
+        try {
+            fs.unlinkSync(fullPath);
+            socket.emit('file-deleted', { success: true, root, filePath });
+            emitUserTree(username);
+        } catch (e) {
+            socket.emit('file-deleted', { success: false, message: 'Delete failed: ' + e.message });
+        }
     });
 
     socket.on('update-settings', (settings) => {
         state.userSettings[username] = { ...(state.userSettings[username] || {}), ...settings };
         saveState();
         socket.emit('settings-updated', state.userSettings[username]);
+    });
+
+    socket.on('update-project-access', (data) => {
+        const { project, user, action } = data;
+        const normalizedUser = user.toLowerCase();
+        const isAdmin = state.adminUsername && username === state.adminUsername;
+        
+        // Prevent using another user's name as a project name if it doesn't belong to them
+        if (state.userConfigs[project] && project !== username && !isAdmin) {
+             return socket.emit('project-access-updated', { success: false, message: 'Cannot use another user\'s name as a project name.' });
+        }
+
+        // Initialize owner if not set
+        if (!state.projectOwners[project]) {
+            state.projectOwners[project] = username;
+            saveState();
+        }
+
+        const isOwner = state.projectOwners[project] === username;
+
+        if (!isOwner && !isAdmin) {
+            return socket.emit('project-access-updated', { success: false, message: 'Only the project owner or admin can manage permissions.' });
+        }
+
+        if (!state.projectPermissions[project]) state.projectPermissions[project] = [];
+        
+        if (action === 'add') {
+            if (!state.projectPermissions[project].includes(normalizedUser)) {
+                state.projectPermissions[project].push(normalizedUser);
+                saveState();
+                socket.emit('project-access-updated', { success: true, project, user: normalizedUser, action });
+                emitUserTree(username);
+                emitUserTree(normalizedUser);
+            } else {
+                socket.emit('project-access-updated', { success: false, message: 'User already has access to this project.' });
+            }
+        } else if (action === 'remove') {
+            const index = state.projectPermissions[project].indexOf(normalizedUser);
+            if (index !== -1) {
+                state.projectPermissions[project].splice(index, 1);
+                saveState();
+                socket.emit('project-access-updated', { success: true, project, user: normalizedUser, action });
+                emitUserTree(username);
+                emitUserTree(normalizedUser);
+            } else {
+                socket.emit('project-access-updated', { success: false, message: 'User not found in this project.' });
+            }
+        }
     });
 
     socket.on('set-admin-username', (newAdmin) => {
@@ -370,10 +513,35 @@ io.on('connection', (socket) => {
         const { type, url, fbAutoPick, project } = config;
         let { useFilebot, useHandbrake } = config;
 
+        const isAdmin = state.adminUsername && username === state.adminUsername;
+
+        if (project) {
+            // Check if project name is someone else's username
+            if (state.userConfigs[project] && project !== username && !isAdmin) {
+                const msg = `\r\n\x1b[31m[System] Error: Cannot use another user's name "${project}" as a project name.\x1b[0m\r\n`;
+                return io.to(username).emit('output', { index, data: msg });
+            }
+
+            // If project is new, the current user becomes the owner
+            if (!state.projectOwners[project]) {
+                state.projectOwners[project] = username;
+                saveState();
+            }
+
+            // Check access
+            const isOwner = state.projectOwners[project] === username;
+            const hasPermission = state.projectPermissions[project] && state.projectPermissions[project].includes(username);
+
+            if (!isOwner && !hasPermission && !isAdmin) {
+                const msg = `\r\n\x1b[31m[System] Error: Access denied to project "${project}".\x1b[0m\r\n`;
+                return io.to(username).emit('output', { index, data: msg });
+            }
+        }
+
         if (!state.featuresEnabled.filebot) useFilebot = false;
         if (!state.featuresEnabled.handbrake) useHandbrake = false;
 
-        const activePaths = getPathForTarget(project || username);
+        const activePaths = getPathForTarget(project || username, username);
         const baseStaging = path.join(__dirname, '__STAGING__');
         const baseOutputs = path.join(__dirname, '__OUTPUTS__');
 
@@ -403,10 +571,7 @@ io.on('connection', (socket) => {
             io.to(username).emit('output', { index, data: msg });
             slot.shell = null; 
             io.to(username).emit('process-exit', { index });
-            io.emit('tree-data', { 
-                staging: getTree(path.join(__dirname, '__STAGING__')), 
-                outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
-            });
+            emitUserTree(username);
         });
 
         setTimeout(() => {
@@ -428,10 +593,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('get-tree', () => {
-        socket.emit('tree-data', { 
-            staging: getTree(path.join(__dirname, '__STAGING__')), 
-            outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
-        });
+        emitUserTree(username);
     });
     
     socket.on('input', (data) => { 
@@ -455,10 +617,7 @@ io.on('connection', (socket) => {
 
     // Periodic tree refresh
     const treeInterval = setInterval(() => {
-        socket.emit('tree-data', { 
-            staging: getTree(path.join(__dirname, '__STAGING__')), 
-            outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
-        });
+        emitUserTree(username);
     }, 10000);
 
     socket.on('disconnect', () => {

@@ -40,6 +40,8 @@
         .icon-btn:hover { background: #333; border-color: #444; }
         .icon-btn svg { width: 18px; height: 18px; fill: #8be9fd; }
         .session-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .project-label { cursor: pointer; user-select: none; }
+        .project-label:hover { text-decoration: underline; }
         .slot-card { border-left: 4px solid #444; }
         .slot-card.running { border-left-color: #50fa7b; }
     </style>
@@ -48,6 +50,7 @@
 <svg style="display: none;">
     <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></symbol>
     <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></symbol>
+    <symbol id="icon-delete" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></symbol>
 </svg>
 <div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -93,11 +96,38 @@
 
 <div class="modal fade" id="detailsModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="detailsTitle">File Details</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" id="detailsBody"></div></div></div></div>
 
+<div class="modal fade" id="projectModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Manage Project Access</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Project Name</label>
+                    <input type="text" id="modal-project-name" class="form-control" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Linux Username</label>
+                    <input type="text" id="modal-project-user" class="form-control" placeholder="username">
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-info flex-grow-1" onclick="submitProjectAction('add')">Add</button>
+                    <button class="btn btn-outline-danger flex-grow-1" onclick="submitProjectAction('remove')">Remove</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     const socket = io();
+    const statusBadge = document.getElementById('status');
     const slotsContainer = document.getElementById('slots-container');
     const addSessionBtn = document.getElementById('add-session-btn');
     const detailsModal = new bootstrap.Modal(document.getElementById('detailsModal'));
+    const projectModal = new bootstrap.Modal(document.getElementById('projectModal'));
     const openPaths = new Set();
     let currentUsername = '';
     let adminUsername = '';
@@ -120,6 +150,15 @@
         alert('Settings saved.');
     });
 
+    socket.on('project-access-updated', (data) => {
+        if (data.success) {
+            alert(`${data.action === 'add' ? 'Added' : 'Removed'} user "${data.user}" ${data.action === 'add' ? 'to' : 'from'} project "${data.project}".`);
+            projectModal.hide();
+        } else {
+            alert('Error: ' + data.message);
+        }
+    });
+
     addSessionBtn.addEventListener('click', () => socket.emit('add-slot'));
 
     socket.on('init-state', (data) => {
@@ -129,6 +168,10 @@
         userSettings = data.settings || { localPathRoot: 'P:' };
         localPathRootInput.value = userSettings.localPathRoot;
         renderSlots(data.slots);
+        if (data.tree) {
+            renderTree(data.tree.staging, document.getElementById('staging-tree'), 'staging', true);
+            renderTree(data.tree.outputs, document.getElementById('outputs-tree'), 'outputs', true);
+        }
     });
 
     socket.on('slot-added', (data) => renderSlots(data.slots));
@@ -291,7 +334,7 @@
                     <div class="col-md-4"><label class="form-label">Mode</label>
                         <select id="type-${i}" class="form-select sync-config" data-slot="${i}"><option value="movie">Movie</option><option value="show">TV Show</option><option value="transcode-only">HandBrake Only</option><option value="filebot-only">FileBot Only</option></select>
                     </div>
-                    <div class="col-md-4"><label class="form-label">Project</label><input type="text" id="project-${i}" class="form-control sync-config" data-slot="${i}" placeholder="CustomProject..."></div>
+                    <div class="col-md-4"><label class="form-label project-label" onclick="manageProject(${i})">Project ﹢</label><input type="text" id="project-${i}" class="form-control sync-config" data-slot="${i}" placeholder="CustomProject..."></div>
                     <div class="col-md-4"><label class="form-label">URL / Path</label><input type="text" id="url-${i}" class="form-control sync-config" data-slot="${i}" placeholder="http://..."></div>
                     <div class="col-md-3 mt-4"><div class="form-check form-switch"><input class="form-check-input sync-config" type="checkbox" id="useFilebot-${i}" data-slot="${i}"><label class="form-check-label">Use FileBot</label></div></div>
                     <div class="col-md-3 mt-4"><div class="form-check form-switch"><input class="form-check-input sync-config" type="checkbox" id="fbAutoPick-${i}" data-slot="${i}"><label class="form-check-label">FB Auto-pick</label></div></div>
@@ -364,6 +407,27 @@
     }
 
     function removeSlot(index) { socket.emit('remove-slot', index); }
+
+    function manageProject(index) {
+        const project = document.getElementById(`project-${index}`).value.trim();
+        if (!project) {
+            alert('Please enter a project name first.');
+            return;
+        }
+        document.getElementById('modal-project-name').value = project;
+        document.getElementById('modal-project-user').value = '';
+        projectModal.show();
+    }
+
+    function submitProjectAction(action) {
+        const project = document.getElementById('modal-project-name').value;
+        const user = document.getElementById('modal-project-user').value.trim();
+        if (!user) {
+            alert('Please enter a username.');
+            return;
+        }
+        socket.emit('update-project-access', { project, user, action });
+    }
 
     function runCommand(index) {
         const config = getSlotConfig(index);
@@ -485,6 +549,7 @@
                     <div>
                         <button class="icon-btn" id="copy-folder-btn" title="Select Folder Path"><svg><use xlink:href="#icon-copy"></use></svg></button>
                         ${isAdmin ? `<a href="${explorerLink}" class="icon-btn" title="Open Folder"><svg><use xlink:href="#icon-folder"></use></svg></a>` : ''}
+                        ${data.canDelete ? `<button class="icon-btn" id="delete-file-btn" title="Delete File" style="fill: #ff5555;"><svg style="fill: #ff5555;"><use xlink:href="#icon-delete"></use></svg></button>` : ''}
                     </div>
                 </div>
                 <input type="text" id="folder-path-input" readonly class="form-control form-control-sm" style="background:#121212; border:1px solid #333; color:#8be9fd; font-family:monospace;" value="${folderPath}">
@@ -495,6 +560,21 @@
             const input = document.getElementById('folder-path-input'); input.select(); input.setSelectionRange(0, 99999);
             try { document.execCommand('copy'); } catch (err) {}
         };
+        if (data.canDelete) {
+            document.getElementById('delete-file-btn').onclick = () => {
+                if (confirm(`Are you sure you want to delete ${data.name}?`)) {
+                    socket.emit('delete-file', { root: data.root, filePath: data.filePath });
+                }
+            };
+        }
+    });
+
+    socket.on('file-deleted', (res) => {
+        if (res.success) {
+            detailsModal.hide();
+        } else {
+            alert('Delete failed: ' + res.message);
+        }
     });
 
     socket.on('connect', () => { statusBadge.innerText = 'Connected'; statusBadge.className = 'badge bg-success'; socket.emit('get-tree'); });
