@@ -76,6 +76,45 @@ if ! $CONVERT_ONLY && ! $FILEBOT_ONLY; then
 fi
 
 # ---------- HELPERS ----------
+urldecode() {
+  python3 - "$1" <<'EOF'
+import sys, urllib.parse
+print(urllib.parse.unquote(sys.argv))
+EOF
+}
+
+build_url() {
+  local current_url="$1"
+  local path_to_build="$2"
+
+  [[ "$path_to_build" =~ ^http ]] && {
+    echo "$path_to_build"
+    return
+  }
+
+  [[ "$path_to_build" =~ ^/ ]] && {
+    echo "$base$path_to_build"
+    return
+  }
+
+  echo "${current_url%/}/$path_to_build"
+}
+
+countdown() {
+  local delay=$((RANDOM % 10 + 10))
+  echo "[Wait] Starting in $delay seconds..."
+  for ((i=delay; i>0; i--)); do
+    printf "\r[Wait] %2ds remaining...   " "$i"
+    sleep 1
+  done
+  echo
+}
+
+is_media_file() {
+  local f="$1"
+  file "$f" | grep -qiE 'Matroska|MP4|AVI|MPEG|ISO Media'
+}
+
 has_local_episode() {
   local ep_tag="$1"
   local found
@@ -290,7 +329,8 @@ run_filebot() {
             filebot -list \
               --db TheTVDB \
               --q "$clean" \
-              2>/dev/null | cut -f1 | sort -u
+              --format "{n} ({y})" \
+              2>/dev/null | sort -u
           )
 
           if (( ${#results[@]} == 0 )); then
@@ -298,21 +338,16 @@ run_filebot() {
             continue
           fi
 
-          if (( ${#results[@]} == 1 )); then
-            selected="${results}"
-            echo "[Auto] Using: $selected"
-          else
-            echo "Select Show match:"
-            for i in "${!results[@]}"; do
-              printf "%2d) %s\n" $((i+1)) "${results[$i]}"
-            done
-            read -rp "Choice: " pick
-            if [[ ! "$pick" =~ ^[0-9]+$ ]] || (( pick < 1 || pick > ${#results[@]} )); then
-              echo "[Skip] Invalid selection"
-              continue
-            fi
-            selected="${results[$((pick-1))]}"
+          echo "Select Show match:"
+          for i in "${!results[@]}"; do
+            printf "%2d) %s\n" $((i+1)) "${results[$i]}"
+          done
+          read -rp "Choice: " pick
+          if [[ ! "$pick" =~ ^[0-9]+$ ]] || (( pick < 1 || pick > ${#results[@]} )); then
+            echo "[Skip] Invalid selection"
+            continue
           fi
+          selected="${results[$((pick-1))]}"
 
           filebot -rename "${group_files[@]}" \
             --db TheTVDB \

@@ -19,7 +19,9 @@ const MEMORY_FILE = path.join(__dirname, 'memory.json');
 let state = {
     featuresEnabled: { filebot: true, handbrake: true },
     adminPassword: process.env.ADMIN_PASSWORD || 'admin123',
-    userConfigs: {} // { username: [slot1, slot2, slot3] }
+    adminUsername: '', // Set on first admin visit if empty
+    userConfigs: {}, // { username: [slot1, slot2, slot3] }
+    userSettings: {} // { username: { localPathRoot: 'P:' } }
 };
 
 // Global State per User (Transient)
@@ -93,6 +95,8 @@ if (fs.existsSync(MEMORY_FILE)) {
         }
         if (savedState.featuresEnabled) state.featuresEnabled = { ...state.featuresEnabled, ...savedState.featuresEnabled };
         if (savedState.adminPassword) state.adminPassword = savedState.adminPassword;
+        if (savedState.adminUsername) state.adminUsername = savedState.adminUsername;
+        if (savedState.userSettings) state.userSettings = savedState.userSettings;
         saveState();
         console.log('State loaded and synchronized');
     } catch (e) { console.error('Error loading memory.json, using defaults'); }
@@ -200,7 +204,10 @@ io.on('connection', (socket) => {
             logs: s.logHistory,
             isRunning: !!s.shell
         })),
-        features: state.featuresEnabled
+        features: state.featuresEnabled,
+        adminUsername: state.adminUsername,
+        topDir: path.basename(__dirname),
+        settings: state.userSettings[username] || { localPathRoot: 'P:' }
     });
 
     socket.emit('user-info', username);
@@ -270,8 +277,22 @@ io.on('connection', (socket) => {
         });
     });
 
+    socket.on('update-settings', (settings) => {
+        state.userSettings[username] = { ...(state.userSettings[username] || {}), ...settings };
+        saveState();
+        socket.emit('settings-updated', state.userSettings[username]);
+    });
+
+    socket.on('set-admin-username', (newAdmin) => {
+        if (!state.adminUsername && newAdmin) {
+            state.adminUsername = newAdmin.toLowerCase();
+            saveState();
+            io.emit('admin-username-set', state.adminUsername);
+        }
+    });
+
     socket.on('admin-login', (pass) => {
-        if (username === 'andromeda' || pass === state.adminPassword) {
+        if ((state.adminUsername && username === state.adminUsername) || pass === state.adminPassword) {
             socket.emit('login-success', state.featuresEnabled);
         } else {
             socket.emit('login-error', 'Invalid admin password');
@@ -279,7 +300,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('update-features', (data) => {
-        if (username === 'andromeda' || data.pass === state.adminPassword) {
+        if ((state.adminUsername && username === state.adminUsername) || data.pass === state.adminPassword) {
             state.featuresEnabled = data.features;
             saveState();
             io.emit('features-updated', state.featuresEnabled);
@@ -342,7 +363,7 @@ io.on('connection', (socket) => {
             env: {
                 ...process.env,
                 STAGING_DIR_OVERRIDE: activePaths.staging,
-                OUTPUT_DIR_OVERRIDE: baseOutputs, // FileBot organizes into the global library
+                OUTPUT_DIR_OVERRIDE: activePaths.outputs, // FileBot organizes into the project folder
                 BASE_STAGING: baseStaging,
                 BASE_OUTPUTS: baseOutputs
             }

@@ -15,10 +15,13 @@
         .container { max-width: 1200px; margin-top: 30px; margin-bottom: 50px; }
         .card { background-color: #1e1e1e; border: 1px solid #333; color: #e0e0e0; margin-bottom: 20px; }
         .form-control, .form-select { background-color: #2d2d2d; border: 1px solid #444; color: #fff; }
+        .form-control::placeholder { color: #888; opacity: 1; }
+        .loading-text { color: #888; font-size: 0.85em; }
         .terminal-wrapper { background-color: #000; border: 2px solid #444; border-radius: 12px; margin-bottom: 20px; display: flex; flex-direction: column; height: 400px; overflow: hidden; }
         .terminal-scroll-area { flex: 1; overflow: auto; background-color: #000; display: block; -webkit-overflow-scrolling: touch; }
         .terminal-container { padding: 15px; min-width: 800px; width: 100%; height: 100%; }
-        .terminal-footer { background-color: #1a1a1a; border-top: 2px solid #444; padding: 10px; text-align: right; flex-shrink: 0; }
+        .terminal-footer { background-color: #1a1a1a; border-top: 2px solid #444; padding: 5px 15px; display: flex; justify-content: space-between; align-items: center; min-height: 45px; flex-shrink: 0; }
+        .fb-dropdown { background-color: #2d2d2d; border: 1px solid #444; color: #8be9fd; font-size: 0.85em; padding: 2px 8px; border-radius: 4px; max-width: 300px; }
         .scroll-to-bottom { color: #8be9fd; text-decoration: none; font-size: 0.85em; font-weight: bold; }
         .terminal-scroll-area::-webkit-scrollbar, .xterm-viewport::-webkit-scrollbar { width: 12px; height: 12px; }
         .terminal-scroll-area::-webkit-scrollbar-track, .xterm-viewport::-webkit-scrollbar-track { background: #000; }
@@ -48,14 +51,41 @@
 <div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2>Grab UI <span class="badge bg-secondary" id="status" style="font-size: 0.5em;">Disconnected</span></h2>
-        <button id="add-session-btn" class="btn btn-outline-info btn-sm">Add Session (Max 3)</button>
+        <div class="d-flex gap-2">
+            <div class="input-group input-group-sm" style="width: 250px;">
+                <span class="input-group-text">Local Path Root</span>
+                <input type="text" id="local-path-root" class="form-control" placeholder="e.g. P:">
+                <button class="btn btn-outline-secondary" type="button" id="save-settings-btn">Save</button>
+            </div>
+            <button id="add-session-btn" class="btn btn-outline-info btn-sm">Add Session (Max 3)</button>
+        </div>
     </div>
 
     <div id="slots-container"></div>
 
     <div class="row">
-        <div class="col-12 mb-3"><div class="tree-container"><div class="tree-title">__STAGING__</div><div id="staging-tree"></div></div></div>
-        <div class="col-12"><div class="tree-container"><div class="tree-title">__OUTPUTS__</div><div id="outputs-tree"></div></div></div>
+        <div class="col-12 mb-3">
+            <div class="tree-container">
+                <div class="tree-title">__STAGING__</div>
+                <div id="staging-tree">
+                    <div class="d-flex align-items-center p-2 loading-text">
+                        <div class="spinner-border spinner-border-sm text-info me-2"></div>
+                        Scanning staging...
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12">
+            <div class="tree-container">
+                <div class="tree-title">__OUTPUTS__</div>
+                <div id="outputs-tree">
+                    <div class="d-flex align-items-center p-2 loading-text">
+                        <div class="spinner-border spinner-border-sm text-info me-2"></div>
+                        Scanning outputs...
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="footer-links"><a href="/logout">Sign Out</a><a href="/admin.html">Admin Panel</a></div>
 </div>
@@ -69,13 +99,34 @@
     const detailsModal = new bootstrap.Modal(document.getElementById('detailsModal'));
     const openPaths = new Set();
     let currentUsername = '';
+    let adminUsername = '';
+    let topDir = '';
+    let userSettings = { localPathRoot: 'P:' };
     let globalFeatures = { filebot: true, handbrake: true };
     let slots = [];
+
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+    const localPathRootInput = document.getElementById('local-path-root');
+
+    saveSettingsBtn.addEventListener('click', () => {
+        const root = localPathRootInput.value.trim();
+        if (root) socket.emit('update-settings', { localPathRoot: root });
+    });
+
+    socket.on('settings-updated', (settings) => {
+        userSettings = settings;
+        localPathRootInput.value = userSettings.localPathRoot;
+        alert('Settings saved.');
+    });
 
     addSessionBtn.addEventListener('click', () => socket.emit('add-slot'));
 
     socket.on('init-state', (data) => {
         globalFeatures = data.features;
+        adminUsername = data.adminUsername;
+        topDir = data.topDir || '';
+        userSettings = data.settings || { localPathRoot: 'P:' };
+        localPathRootInput.value = userSettings.localPathRoot;
         renderSlots(data.slots);
     });
 
@@ -99,8 +150,83 @@
         if (slot && slot.term) {
             slot.term.write(data.data);
             if (slot.isAtBottom) slot.term.scrollToBottom();
+
+            // Check for prompts
+            setTimeout(() => checkFileBotPrompt(data.index), 50);
         }
     });
+
+    function checkFileBotPrompt(index) {
+        const slot = slots[index];
+        if (!slot || !slot.term) return;
+
+        const term = slot.term;
+        const buffer = term.buffer.active;
+        let lastLines = [];
+
+        // Grab the last 15 lines to be safe for lists
+        for (let i = buffer.baseY + term.rows - 1; i >= Math.max(0, buffer.baseY); i--) {
+            const line = buffer.getLine(i);
+            if (line) lastLines.unshift(line.translateToString().trim());
+        }
+
+        const fullText = lastLines.join('\n');
+        const promptArea = document.getElementById(`fb-prompt-area-${index}`);
+        const select = document.getElementById(`fb-choices-${index}`);
+
+        // Pattern 1: Type Selection
+        if (fullText.includes('Type? (S=Show, M=Movie, Skip=Enter):')) {
+            if (select.dataset.type === 'mode') return; // Already showing
+            select.innerHTML = '<option value="">Select Mode...</option>' +
+                '<option value="S\n">TV Show</option>' +
+                '<option value="M\n">Movie</option>' +
+                '<option value="\n">Skip</option>';
+            select.dataset.type = 'mode';
+            promptArea.style.visibility = 'visible';
+            return;
+        }
+
+        // Pattern 2: Choice from list
+        if (fullText.includes('Choice:')) {
+            const lines = fullText.split('\n');
+            const options = [];
+            // Look for lines like " 1) Name (Year)"
+            const optionRegex = /^\s*(\d+)\)\s+(.+)$/;
+
+            lines.forEach(line => {
+                const match = line.match(optionRegex);
+                if (match) options.push({ val: match[1] + '\n', label: line.trim() });
+            });
+
+            if (options.length > 0) {
+                if (select.dataset.type === 'choice' && select.options.length === options.length + 1) return;
+                select.innerHTML = '<option value="">Select Match...</option>' +
+                    options.map(o => `<option value="${o.val}">${o.label}</option>`).join('');
+                select.dataset.type = 'choice';
+                promptArea.style.visibility = 'visible';
+                return;
+            }
+        }
+
+        // Hide if no prompt detected
+        if (promptArea.style.visibility === 'visible' && !fullText.includes('Choice:') && !fullText.includes('Type?')) {
+            promptArea.style.visibility = 'hidden';
+            select.dataset.type = '';
+        }
+    }
+
+    function submitFbChoice(index) {
+        const select = document.getElementById(`fb-choices-${index}`);
+        const val = select.value;
+        if (!val) return;
+
+        socket.emit('input', { index, input: val });
+
+        // Hide immediately
+        document.getElementById(`fb-prompt-area-${index}`).style.visibility = 'hidden';
+        select.dataset.type = '';
+        select.value = '';
+    }
 
     socket.on('clear-terminal', (data) => {
         const slot = slots[data.index];
@@ -147,7 +273,15 @@
                 </div>
                 <div class="terminal-wrapper">
                     <div class="terminal-scroll-area"><div id="term-${i}" class="terminal-container"></div></div>
-                    <div class="terminal-footer"><a href="#" class="scroll-to-bottom" onclick="scrollToBottom(event, ${i})">↓ Go to bottom</a></div>
+                    <div class="terminal-footer">
+                        <div id="fb-prompt-area-${i}" class="d-flex align-items-center gap-2" style="visibility: hidden;">
+                            <span class="small text-muted">FileBot:</span>
+                            <select id="fb-choices-${i}" class="fb-dropdown" onchange="submitFbChoice(${i})">
+                                <option value="">Select option...</option>
+                            </select>
+                        </div>
+                        <a href="#" class="scroll-to-bottom" onclick="scrollToBottom(event, ${i})">↓ Go to bottom</a>
+                    </div>
                 </div>
             `;
             slotsContainer.appendChild(slotEl);
@@ -279,20 +413,37 @@
     socket.on('file-details', (data) => {
         const body = document.getElementById('detailsBody'); document.getElementById('detailsTitle').innerText = data.name;
         if (data.error) { body.innerHTML = `<div class="text-danger text-center">${data.error}</div>`; return; }
-        let displayPath = data.path; let explorerLink = '';
-        if (currentUsername === 'andromeda') {
-            displayPath = 'P:\\' + displayPath.replace(/\//g, '\\').replace(/^\\/, '');
-        } else { displayPath = displayPath.replace(/\\/g, '/'); }
-        let folderPath = displayPath.includes('\\') ? displayPath.substring(0, displayPath.lastIndexOf('\\')) : (displayPath.includes('/') ? displayPath.substring(0, displayPath.lastIndexOf('/')) : displayPath);
-        if (currentUsername === 'andromeda') explorerLink = 'file:///' + folderPath.replace(/\\/g, '/') + '/';
+
+        const isAdmin = adminUsername && currentUsername === adminUsername;
+        let displayPath = data.path; // e.g. "__STAGING__/project/file.mkv"
+        let explorerLink = '';
+
+        // Construct local path: (localpathmodifier)\(topdirectory)\relative_path
+        let localModifier = userSettings.localPathRoot || 'P:';
+        const winRelativePath = displayPath.replace(/\//g, '\\');
+        const winTopDir = topDir.replace(/\//g, '\\');
+
+        // Join parts and ensure single backslashes (except possibly after drive letter)
+        let fullLocalPath = [localModifier, winTopDir, winRelativePath].join('\\').replace(/\\+/g, '\\');
+
+        // Fix drive letter colon (P:\ instead of P\)
+        if (/^[a-zA-Z]:\\/.test(fullLocalPath) === false && /^[a-zA-Z]:/.test(fullLocalPath)) {
+            fullLocalPath = fullLocalPath.replace(/^([a-zA-Z]:)/, '$1\\');
+        }
+
+        const folderPath = fullLocalPath.substring(0, fullLocalPath.lastIndexOf('\\'));
+        if (isAdmin) {
+            explorerLink = 'file:///' + folderPath.replace(/\\/g, '/') + '/';
+        }
+
         const rows = [['File Size', data.size],['Duration', data.duration],['Container', data.container],['Resolution', data.width ? `${data.width}x${data.height}` : 'N/A'],['Frame Rate', data.fps],['Audio Bitrate', data.audio_bitrate],['Channels', data.channels],['Sample Rate', data.sample_rate]];
         body.innerHTML = `
             <div class="mb-3 border-bottom border-secondary pb-2">
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                    <div class="detail-label">Folder Path</div>
+                    <div class="detail-label">Local Folder Path</div>
                     <div>
                         <button class="icon-btn" id="copy-folder-btn" title="Select Folder Path"><svg><use xlink:href="#icon-copy"></use></svg></button>
-                        ${currentUsername === 'andromeda' ? `<a href="${explorerLink}" class="icon-btn" title="Open Folder"><svg><use xlink:href="#icon-folder"></use></svg></a>` : ''}
+                        ${isAdmin ? `<a href="${explorerLink}" class="icon-btn" title="Open Folder"><svg><use xlink:href="#icon-folder"></use></svg></a>` : ''}
                     </div>
                 </div>
                 <input type="text" id="folder-path-input" readonly class="form-control form-control-sm" style="background:#121212; border:1px solid #333; color:#8be9fd; font-family:monospace;" value="${folderPath}">
