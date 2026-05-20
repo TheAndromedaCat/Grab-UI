@@ -1,8 +1,8 @@
 class GrabUi < Formula
   desc "Web interface for grab.sh - Media Automation & Management"
   homepage "https://github.com/TheAndromedaCat/Grab-UI"
-  url "https://github.com/TheAndromedaCat/Grab-UI/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "6a3947768c8afa6cb83e00676fc221494078343eeedfba6141a24e169c6b69e3"
+  url "https://github.com/TheAndromedaCat/Grab-UI/archive/refs/tags/v1.0.1.tar.gz"
+  sha256 "4542caa5a565d871f26716059807b835251e634e726fc9c60007c18144e00f3a"
   license "MIT"
 
   depends_on "node"
