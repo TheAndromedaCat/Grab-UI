@@ -30,21 +30,23 @@ class GrabUi < Formula
   def post_install
     (var/"grab-ui").mkpath
     (var/"log").mkpath
+    # Create symlinks for data directories if they don't exist in the libexec
+    ln_s var/"grab-ui", libexec/"data" unless (libexec/"data").exist?
   end
 
   def caveats
     <<~EOS
-      Grab-UI requires PAM for authentication on Linux. Ensure 'libpam0g-dev' (Debian/Ubuntu) 
-      or 'pam-devel' (RHEL/Fedora) is installed on your host system.
-      
+      Grab-UI saves data (downloads and configuration) to:
+        #{var}/grab-ui
+
       To start Grab-UI as a background service:
         brew services start grab-ui
 
-      Alternatively, you can use PM2 to manage the process:
-        pm2 start #{opt_bin}/grab-ui --name grab-ui
+      Alternatively, to start with PM2 manually:
+        pm2 start #{opt_bin}/grab-ui --name grab-ui -- --cwd #{var}/grab-ui
 
-      Optional dependencies like 'handbrake-cli' and 'filebot' should be installed separately:
-        brew install handbrake-cli (Linux) or brew install --cask handbrake-cli (macOS)
+      Note: If using PM2, ensure you are running it as a user with write 
+      permissions to #{var}/grab-ui.
     EOS
   end
 
