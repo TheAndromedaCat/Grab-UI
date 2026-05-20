@@ -2,6 +2,18 @@
 
 Grab UI is a powerful, web-based media automation tool that combines a robust shell-based processing engine with a modern, multi-session web interface. It allows users to scrape, download, transcode, and organize movies and TV shows with enterprise-grade features.
 
+## 📋 Table of Contents
+- [🚀 Key Features](#-key-features)
+    - [📡 Smart Scraping & Downloading](#-smart-scraping--downloading-grabsh)
+    - [⚙️ Media Processing Engine](#️-media-processing-engine)
+    - [🌐 Advanced Web Interface](#-advanced-web-interface-indexjs--ui)
+- [🔐 Security & Authentication](#-security--authentication)
+- [🛠 Installation & Deployment](#-installation--deployment)
+    - [1. Prerequisites](#1-prerequisites)
+    - [2. Quick Start](#2-quick-start)
+    - [3. Running with PM2](#3-running-with-pm2-recommended)
+    - [4. Management Commands](#4-management-commands)
+
 ## 🚀 Key Features
 
 ### 📡 Smart Scraping & Downloading (`grab.sh`)
