@@ -6,6 +6,7 @@
     <title>Grab UI</title>
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
@@ -14,63 +15,23 @@
         .container { max-width: 1000px; margin-top: 30px; margin-bottom: 50px; }
         .card { background-color: #1e1e1e; border: 1px solid #333; color: #e0e0e0; margin-bottom: 20px; }
         .form-control, .form-select { background-color: #2d2d2d; border: 1px solid #444; color: #fff; }
-        
-        .terminal-wrapper {
-            background-color: #000;
-            border: 2px solid #444;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            display: flex;
-            flex-direction: column;
-            height: 500px;
-            overflow: hidden;
-        }
-        .terminal-scroll-area {
-            flex: 1;
-            overflow: auto;
-            background-color: #000;
-            display: block;
-            -webkit-overflow-scrolling: touch;
-        }
-        #terminal-container {
-            padding: 15px;
-            min-width: 800px;
-            width: 100%;
-            height: 100%;
-        }
-        .terminal-footer {
-            background-color: #1a1a1a;
-            border-top: 2px solid #444;
-            padding: 15px;
-            text-align: right;
-            flex-shrink: 0;
-        }
+        .terminal-wrapper { background-color: #000; border: 2px solid #444; border-radius: 12px; margin-bottom: 20px; display: flex; flex-direction: column; height: 500px; overflow: hidden; }
+        .terminal-scroll-area { flex: 1; overflow: auto; background-color: #000; display: block; -webkit-overflow-scrolling: touch; }
+        #terminal-container { padding: 15px; min-width: 800px; width: 100%; height: 100%; }
+        .terminal-footer { background-color: #1a1a1a; border-top: 2px solid #444; padding: 15px; text-align: right; flex-shrink: 0; }
         #scroll-to-bottom { color: #8be9fd; text-decoration: none; font-size: 0.85em; font-weight: bold; }
-        
-        /* Custom Scrollbars */
         .terminal-scroll-area::-webkit-scrollbar, .xterm-viewport::-webkit-scrollbar { width: 12px; height: 12px; }
         .terminal-scroll-area::-webkit-scrollbar-track, .xterm-viewport::-webkit-scrollbar-track { background: #000; }
         .terminal-scroll-area::-webkit-scrollbar-thumb, .xterm-viewport::-webkit-scrollbar-thumb { background: #333; border-radius: 5px; border: 2px solid #000; }
-
-        .tree-container { background-color: #1e1e1e; border: 1px solid #333; border-radius: 5px; padding: 15px; height: 400px; overflow-y: auto; }
+        .tree-container { background-color: #1e1e1e; border: 1px solid #333; border-radius: 5px; padding: 15px; height: 350px; overflow-y: auto; width: 100%; }
         .tree-title { font-size: 1.1em; font-weight: bold; color: #8be9fd; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px; }
         .tree-list { list-style: none; padding-left: 20px; margin: 0; }
         .tree-item { cursor: pointer; margin: 2px 0; user-select: none; white-space: nowrap; }
-        .folder::before { content: '📁 '; }
-        .folder.open::before { content: '📂 '; }
-        .file::before { content: '📄 '; }
-        .nested { display: none; }
-        .active { display: block; }
-        .footer-links { display: flex; justify-content: space-between; margin-top: 20px; opacity: 0.5; }
-        .footer-links a { color: #888; text-decoration: none; font-size: 0.8em; }
-
-        /* File Details Modal Styling */
-        .modal-content { background-color: #1e1e1e; color: #e0e0e0; border: 1px solid #444; }
-        .modal-header { border-bottom: 1px solid #333; }
-        .modal-footer { border-top: 1px solid #333; }
-        .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a2a2a; }
-        .detail-label { color: #888; font-weight: bold; }
-        .detail-value { color: #fff; }
+        .folder::before { content: '📁 '; } .folder.open::before { content: '📂 '; } .file::before { content: '📄 '; }
+        .nested { display: none; } .active { display: block; }
+        .footer-links { display: flex; justify-content: space-between; margin-top: 20px; opacity: 0.5; } .footer-links a { color: #888; text-decoration: none; font-size: 0.8em; }
+        .modal-content { background-color: #1e1e1e; color: #e0e0e0; border: 1px solid #444; } .modal-header { border-bottom: 1px solid #333; } .modal-footer { border-top: 1px solid #333; }
+        .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #2a2a2a; } .detail-label { color: #888; font-weight: bold; } .detail-value { color: #fff; }
     </style>
 </head>
 <body>
@@ -79,266 +40,126 @@
         <h2>Grab UI <span class="badge bg-secondary" id="status" style="font-size: 0.5em;">Disconnected</span></h2>
         <div><button id="kill-btn" class="btn btn-danger btn-sm" disabled>Kill Process</button></div>
     </div>
-    
     <div class="card p-4">
         <div class="row g-3">
-            <div class="col-md-6">
-                <label class="form-label">Mode</label>
-                <select id="type" class="form-select sync-config">
-                    <option value="movie">Movie</option>
-                    <option value="show">TV Show</option>
-                    <option value="transcode-only">HandBrake Only</option>
-                    <option value="filebot-only">FileBot Only</option>
-                </select>
+            <div class="col-md-6"><label class="form-label">Mode</label>
+                <select id="type" class="form-select sync-config"><option value="movie">Movie</option><option value="show">TV Show</option><option value="transcode-only">HandBrake Only</option><option value="filebot-only">FileBot Only</option></select>
             </div>
-            <div class="col-md-6">
-                <label class="form-label">URL / Path</label>
-                <input type="text" id="url" class="form-control sync-config" placeholder="http://...">
+            <div class="col-md-6"><label class="form-label">URL / Path</label><input type="text" id="url" class="form-control sync-config" placeholder="http://..."></div>
+            <div class="col-md-3 mt-4">
+                <div class="form-check form-switch"><input class="form-check-input sync-config" type="checkbox" id="useFilebot"><label class="form-check-label" for="useFilebot">Use FileBot</label></div>
             </div>
             <div class="col-md-3 mt-4">
-                <div class="form-check form-switch">
-                    <input class="form-check-input sync-config" type="checkbox" id="useFilebot">
-                    <label class="form-check-label" for="useFilebot">Use FileBot</label>
-                </div>
+                <div class="form-check form-switch"><input class="form-check-input sync-config" type="checkbox" id="fbAutoPick" checked><label class="form-check-label" for="fbAutoPick">FB Auto-pick</label></div>
             </div>
             <div class="col-md-3 mt-4">
-                <div class="form-check form-switch">
-                    <input class="form-check-input sync-config" type="checkbox" id="useHandbrake">
-                    <label class="form-check-label" for="useHandbrake">Use HandBrake</label>
-                </div>
+                <div class="form-check form-switch"><input class="form-check-input sync-config" type="checkbox" id="useHandbrake"><label class="form-check-label" for="useHandbrake">Use HandBrake</label></div>
             </div>
-            <div class="col-md-6 mt-4"><button id="run-btn" class="btn btn-primary btn-run">RUN COMMAND</button></div>
+            <div class="col-md-3 mt-4"><button id="run-btn" class="btn btn-primary btn-run">RUN COMMAND</button></div>
         </div>
     </div>
-
-    <div class="terminal-wrapper">
-        <div class="terminal-scroll-area">
-            <div id="terminal-container"></div>
-        </div>
-        <div class="terminal-footer">
-            <a href="#" id="scroll-to-bottom">↓ Go to bottom</a>
-        </div>
-    </div>
-
+    <div class="terminal-wrapper"><div class="terminal-scroll-area"><div id="terminal-container"></div></div><div class="terminal-footer"><a href="#" id="scroll-to-bottom">↓ Go to bottom</a></div></div>
     <div class="row">
-        <div class="col-md-6"><div class="tree-container"><div class="tree-title">__STAGING__</div><div id="staging-tree"></div></div></div>
-        <div class="col-md-6"><div class="tree-container"><div class="tree-title">__OUTPUTS__</div><div id="outputs-tree"></div></div></div>
-    </div>
-    
-    <div class="footer-links">
-        <a href="/logout">Sign Out</a>
-        <a href="/admin.html">Admin Panel</a>
-    </div>
-</div>
-
-<!-- File Details Modal -->
-<div class="modal fade" id="detailsModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="detailsTitle">File Details</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        <div class="col-12 mb-3">
+            <div class="tree-container">
+                <div class="tree-title">__STAGING__</div>
+                <div id="staging-tree"></div>
             </div>
-            <div class="modal-body" id="detailsBody">
-                <div class="text-center py-4">Probing file...</div>
+        </div>
+        <div class="col-12">
+            <div class="tree-container">
+                <div class="tree-title">__OUTPUTS__</div>
+                <div id="outputs-tree"></div>
             </div>
         </div>
     </div>
+    <div class="footer-links"><a href="/logout">Sign Out</a><a href="/admin.html">Admin Panel</a></div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<div class="modal fade" id="detailsModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="detailsTitle">File Details</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" id="detailsBody"><div class="text-center py-4">Probing file...</div></div></div></div></div>
 <script>
     const socket = io();
-    const runBtn = document.getElementById('run-btn');
-    const killBtn = document.getElementById('kill-btn');
-    const statusBadge = document.getElementById('status');
-    const scrollToBottomBtn = document.getElementById('scroll-to-bottom');
-    const detailsModal = new bootstrap.Modal(document.getElementById('detailsModal'));
-    const openPaths = new Set();
-    let isAtBottom = true;
-
-    const term = new Terminal({
-        theme: { background: '#000000', foreground: '#00ff00', cursor: '#00ff00' },
-        cursorBlink: true, fontSize: 13, fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-        convertEol: true, scrollback: 5000
-    });
-    
-    const fitAddon = new FitAddon.FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(document.getElementById('terminal-container'));
-
-    function syncSize() {
-        fitAddon.fit();
-        if (term.cols && term.rows) socket.emit('resize', { cols: term.cols, rows: term.rows });
-    }
-
-    setTimeout(syncSize, 100);
-    setTimeout(syncSize, 1000);
-    window.addEventListener('resize', syncSize);
-
-    term.onScroll(() => {
-        const buffer = term.buffer.active;
-        isAtBottom = (buffer.viewportY + term.rows) >= (buffer.baseY + buffer.cursorY) || (buffer.viewportY + term.rows >= buffer.baseY);
-    });
-
-    scrollToBottomBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        term.scrollToBottom();
-        isAtBottom = true;
-    });
-
-    socket.on('init-state', (state) => {
-        applyConfig(state.config);
-        applyFeatures(state.features);
-        term.clear();
-        if (state.logs) term.write(state.logs);
-        if (state.isRunning) { runBtn.disabled = true; killBtn.disabled = false; }
-        setTimeout(syncSize, 500);
-    });
-
+    const runBtn = document.getElementById('run-btn'); const killBtn = document.getElementById('kill-btn'); const statusBadge = document.getElementById('status'); const scrollToBottomBtn = document.getElementById('scroll-to-bottom');
+    const detailsModal = new bootstrap.Modal(document.getElementById('detailsModal')); const openPaths = new Set(); let isAtBottom = true;
+    const term = new Terminal({ theme: { background: '#000000', foreground: '#00ff00', cursor: '#00ff00' }, cursorBlink: true, fontSize: 13, fontFamily: 'Menlo, Monaco, "Courier New", monospace', convertEol: true, scrollback: 5000 });
+    const fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); term.open(document.getElementById('terminal-container'));
+    function syncSize() { fitAddon.fit(); if (term.cols && term.rows) socket.emit('resize', { cols: term.cols, rows: term.rows }); }
+    setTimeout(syncSize, 100); setTimeout(syncSize, 1000); window.addEventListener('resize', syncSize);
+    term.onScroll(() => { const buffer = term.buffer.active; isAtBottom = (buffer.viewportY + term.rows) >= buffer.baseY; });
+    scrollToBottomBtn.addEventListener('click', (e) => { e.preventDefault(); term.scrollToBottom(); isAtBottom = true; });
+    socket.on('init-state', (state) => { applyConfig(state.config); applyFeatures(state.features); term.clear(); if (state.logs) term.write(state.logs); if (state.isRunning) { runBtn.disabled = true; killBtn.disabled = false; } setTimeout(syncSize, 500); });
     socket.on('config-updated', (config) => applyConfig(config));
     socket.on('features-updated', (features) => applyFeatures(features));
-    socket.on('output', (data) => {
-        term.write(data);
-        if (isAtBottom) term.scrollToBottom();
-    });
+    socket.on('output', (data) => { term.write(data); if (isAtBottom) term.scrollToBottom(); });
     socket.on('clear-terminal', () => { term.clear(); term.reset(); });
     socket.on('process-exit', () => { runBtn.disabled = false; killBtn.disabled = true; });
-
     socket.on('file-details', (data) => {
-        const body = document.getElementById('detailsBody');
-        document.getElementById('detailsTitle').innerText = data.name;
-        
-        if (data.error) {
-            body.innerHTML = `<div class="text-danger text-center">${data.error}</div>`;
-            return;
+        const body = document.getElementById('detailsBody'); document.getElementById('detailsTitle').innerText = data.name;
+        if (data.error) { body.innerHTML = `<div class="text-danger text-center">${data.error}</div>`; return; }
+
+        let displayPath = data.path;
+        const isWindows = navigator.platform.indexOf('Win') > -1;
+        if (isWindows) {
+            displayPath = 'P:\\' + displayPath.replace(/\//g, '\\').replace(/^\\/, '');
         }
 
-        const rows = [
-            ['File Size', data.size],
-            ['Duration', data.duration],
-            ['Container', data.container],
-            ['Resolution', data.width ? `${data.width}x${data.height}` : 'N/A'],
-            ['Frame Rate', data.fps],
-            ['Audio Bitrate', data.audio_bitrate],
-            ['Channels', data.channels],
-            ['Sample Rate', data.sample_rate]
-        ];
+        const rows = [['File Size', data.size],['Duration', data.duration],['Container', data.container],['Resolution', data.width ? `${data.width}x${data.height}` : 'N/A'],['Frame Rate', data.fps],['Audio Bitrate', data.audio_bitrate],['Channels', data.channels],['Sample Rate', data.sample_rate]];
 
-        body.innerHTML = rows.map(r => `
-            <div class="detail-row">
-                <span class="detail-label">${r[0]}</span>
-                <span class="detail-value">${r[1] || 'N/A'}</span>
+        let html = `
+            <div class="mb-3 border-bottom border-secondary pb-2">
+                <div class="detail-label mb-1">Full Path</div>
+                <div class="detail-value" style="font-family: monospace; font-size: 0.9em; white-space: nowrap; overflow-x: auto; padding-bottom: 5px;">${displayPath}</div>
             </div>
-        `).join('');
+        `;
+        html += rows.map(r => `<div class="detail-row"><span class="detail-label">${r[0]}</span><span class="detail-value">${r[1] || 'N/A'}</span></div>`).join('');
+        body.innerHTML = html;
     });
-
     function applyConfig(config) {
-        document.getElementById('type').value = config.type;
-        document.getElementById('url').value = config.url;
-        document.getElementById('useFilebot').checked = config.useFilebot;
+        document.getElementById('type').value = config.type; document.getElementById('url').value = config.url;
+        document.getElementById('useFilebot').checked = config.useFilebot; document.getElementById('fbAutoPick').checked = config.fbAutoPick;
         document.getElementById('useHandbrake').checked = config.useHandbrake;
     }
-
     function applyFeatures(features) {
-        const fbEl = document.getElementById('useFilebot');
-        const hbEl = document.getElementById('useHandbrake');
-        fbEl.disabled = !features.filebot;
-        if (!features.filebot) fbEl.checked = false;
-        hbEl.disabled = !features.handbrake;
-        if (!features.handbrake) hbEl.checked = false;
+        const fbEl = document.getElementById('useFilebot'); const hbEl = document.getElementById('useHandbrake');
+        fbEl.disabled = !features.filebot; if (!features.filebot) fbEl.checked = false;
+        hbEl.disabled = !features.handbrake; if (!features.handbrake) hbEl.checked = false;
     }
-
     document.querySelectorAll('.sync-config').forEach(el => {
         el.addEventListener('change', () => {
             socket.emit('update-config', {
-                type: document.getElementById('type').value,
-                url: document.getElementById('url').value,
-                useFilebot: document.getElementById('useFilebot').checked,
+                type: document.getElementById('type').value, url: document.getElementById('url').value,
+                useFilebot: document.getElementById('useFilebot').checked, fbAutoPick: document.getElementById('fbAutoPick').checked,
                 useHandbrake: document.getElementById('useHandbrake').checked
             });
         });
     });
-
     runBtn.addEventListener('click', () => {
-        syncSize();
-        socket.emit('run-command', {
-            type: document.getElementById('type').value,
-            url: document.getElementById('url').value,
-            useFilebot: document.getElementById('useFilebot').checked,
-            useHandbrake: document.getElementById('useHandbrake').checked,
-            cols: term.cols,
-            rows: term.rows
+        syncSize(); socket.emit('run-command', {
+            type: document.getElementById('type').value, url: document.getElementById('url').value,
+            useFilebot: document.getElementById('useFilebot').checked, fbAutoPick: document.getElementById('fbAutoPick').checked,
+            useHandbrake: document.getElementById('useHandbrake').checked, cols: term.cols, rows: term.rows
         });
-        runBtn.disabled = true; killBtn.disabled = false;
-        term.clear();
-        term.write('\x1b[34m[System] Starting process...\x1b[0m\r\n');
+        runBtn.disabled = true; killBtn.disabled = false; term.clear(); term.write('\x1b[34m[System] Starting process...\x1b[0m\r\n');
     });
-
     killBtn.addEventListener('click', () => socket.emit('kill'));
-
-    socket.on('tree-data', (data) => {
-        renderTree(data.staging, document.getElementById('staging-tree'), 'staging', true);
-        renderTree(data.outputs, document.getElementById('outputs-tree'), 'outputs', true);
-    });
-
+    socket.on('tree-data', (data) => { renderTree(data.staging, document.getElementById('staging-tree'), 'staging', true); renderTree(data.outputs, document.getElementById('outputs-tree'), 'outputs', true); });
     function renderTree(data, container, treeId, isTopLevel = false, path = '') {
-        if (isTopLevel) container.innerHTML = '';
-        if (!data || data.length === 0) {
-            if (isTopLevel) container.innerHTML = '<div class="text-muted small">Empty</div>';
-            return;
-        }
-        const ul = document.createElement('ul');
-        ul.className = 'tree-list' + (isTopLevel ? ' active' : ' nested');
-        
+        if (isTopLevel) container.innerHTML = ''; if (!data || data.length === 0) { if (isTopLevel) container.innerHTML = '<div class="text-muted small">Empty</div>'; return; }
+        const ul = document.createElement('ul'); ul.className = 'tree-list' + (isTopLevel ? ' active' : ' nested');
         data.forEach(item => {
-            const currentPath = `${path}/${item.name}`;
-            const li = document.createElement('li');
-            li.className = 'tree-item ' + (item.isDirectory ? 'folder' : 'file');
-            if (item.isDirectory && openPaths.has(`${treeId}:${currentPath}`)) li.classList.add('open');
-            
-            const span = document.createElement('span');
-            span.innerText = item.name;
-            li.appendChild(span);
-            
+            const currentPath = `${path}/${item.name}`; const li = document.createElement('li');
+            li.className = 'tree-item ' + (item.isDirectory ? 'folder' : 'file'); if (item.isDirectory && openPaths.has(`${treeId}:${currentPath}`)) li.classList.add('open');
+            const span = document.createElement('span'); span.innerText = item.name; li.appendChild(span);
             if (item.isDirectory) {
-                const nestedContainer = document.createElement('div');
-                if (openPaths.has(`${treeId}:${currentPath}`)) nestedContainer.className = 'active';
-                li.appendChild(nestedContainer);
-                
-                li.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    const isOpen = this.classList.toggle('open');
-                    const nested = this.querySelector('div');
-                    nested.classList.toggle('active');
-                    if (isOpen) openPaths.add(`${treeId}:${currentPath}`);
-                    else openPaths.delete(`${treeId}:${currentPath}`);
-                });
+                const nestedContainer = document.createElement('div'); if (openPaths.has(`${treeId}:${currentPath}`)) nestedContainer.className = 'active';
+                li.appendChild(nestedContainer); li.addEventListener('click', function(e) { e.stopPropagation(); const isOpen = this.classList.toggle('open'); const nested = this.querySelector('div'); nested.classList.toggle('active'); if (isOpen) openPaths.add(`${treeId}:${currentPath}`); else openPaths.delete(`${treeId}:${currentPath}`); });
                 renderTree(item.children, nestedContainer, treeId, false, currentPath);
-            } else {
-                li.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    document.getElementById('detailsTitle').innerText = item.name;
-                    document.getElementById('detailsBody').innerHTML = '<div class="text-center py-4">Probing file...</div>';
-                    detailsModal.show();
-                    socket.emit('get-file-details', { root: treeId, filePath: currentPath.substring(1) });
-                });
-            }
+            } else { li.addEventListener('click', function(e) { e.stopPropagation(); document.getElementById('detailsTitle').innerText = item.name; document.getElementById('detailsBody').innerHTML = '<div class="text-center py-4">Probing file...</div>'; detailsModal.show(); socket.emit('get-file-details', { root: treeId, filePath: currentPath.substring(1) }); }); }
             ul.appendChild(li);
         });
         container.appendChild(ul);
     }
-
-    socket.on('connect', () => {
-        statusBadge.innerText = 'Connected';
-        statusBadge.className = 'badge bg-success';
-        socket.emit('get-tree');
-    });
-
-    socket.on('disconnect', () => {
-        statusBadge.innerText = 'Disconnected';
-        statusBadge.className = 'badge bg-danger';
-    });
+    socket.on('connect', () => { statusBadge.innerText = 'Connected'; statusBadge.className = 'badge bg-success'; socket.emit('get-tree'); });
+    socket.on('disconnect', () => { statusBadge.innerText = 'Disconnected'; statusBadge.className = 'badge bg-danger'; });
 </script>
 </body>
 </html>

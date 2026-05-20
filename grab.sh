@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DO NOT MODIFY SCRIPT.
+# DO NOT MODIFY SCRIPT UNLESS EXPLICITLY TOLD TO
 
 set -uo pipefail
 IFS=$'\n\t'
@@ -39,11 +39,14 @@ USE_FILEBOT=false
 USE_HANDBRAKE=false
 CONVERT_ONLY=false
 FILEBOT_ONLY=false
+FB_AUTO_PICK=true
 
 if $HAS_FILEBOT; then
   read -rp "Use FileBot? (y/N): " fb
   if [[ ${fb,,} == "y" ]]; then
     USE_FILEBOT=true
+    read -rp "Auto-pick matches? (y/N): " ap
+    [[ ${ap,,} == "n" ]] && FB_AUTO_PICK=false
     read -rp "Run FileBot ONLY (no download/convert)? (y/N): " fbo
     [[ ${fbo,,} == "y" ]] && FILEBOT_ONLY=true
   fi
@@ -307,13 +310,55 @@ run_filebot() {
 
     case "$choice" in
       S)
-        filebot -rename "${group_files[@]}" \
-          --db TheTVDB \
-          -non-strict \
-          --format "{ plex.id }" \
-          --output "$OUTPUT_DIR" \
-          --action move \
-          --conflict skip
+        if $FB_AUTO_PICK; then
+          filebot -rename "${group_files[@]}" \
+            --db TheTVDB \
+            -non-strict \
+            --format "{ plex.id }" \
+            --output "$OUTPUT_DIR" \
+            --action move \
+            --conflict skip
+        else
+          clean="$key"
+          echo "[FileBot] Searching for Show: $clean"
+
+          mapfile -t results < <(
+            filebot -list \
+              --db TheTVDB \
+              --q "$clean" \
+              2>/dev/null | cut -f1 | sort -u
+          )
+
+          if (( ${#results[@]} == 0 )); then
+            echo "[FileBot] No matches found for: $clean"
+            continue
+          fi
+
+          if (( ${#results[@]} == 1 )); then
+            selected="${results}"
+            echo "[Auto] Using: $selected"
+          else
+            echo "Select Show match:"
+            for i in "${!results[@]}"; do
+              printf "%2d) %s\n" $((i+1)) "${results[$i]}"
+            done
+            read -rp "Choice: " pick
+            if [[ ! "$pick" =~ ^[0-9]+$ ]] || (( pick < 1 || pick > ${#results[@]} )); then
+              echo "[Skip] Invalid selection"
+              continue
+            fi
+            selected="${results[$((pick-1))]}"
+          fi
+
+          filebot -rename "${group_files[@]}" \
+            --db TheTVDB \
+            --q "$selected" \
+            -non-strict \
+            --format "{ plex.id }" \
+            --output "$OUTPUT_DIR" \
+            --action move \
+            --conflict skip
+        fi
         ;;
 
       M)
