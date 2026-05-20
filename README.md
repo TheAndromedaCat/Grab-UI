@@ -179,5 +179,9 @@ pm2 startup
 
 The web interface will be available at `http://your-server-ip:2026`.
 
+## 🚀 Upcoming Roadmap
+- [ ] **Stateful Download Resumption:** Implement advanced chunk-aware download management to facilitate partial fragment recovery, eliminating the need for full-file re-transfers during intermittent network interruptions.
+- [ ] **Real-time Velocity Metrics:** Integrate live throughput monitoring to provide granular insights into active download speeds and network performance.
+
 ---
 *Note: This tool is intended for personal media management and organization.*

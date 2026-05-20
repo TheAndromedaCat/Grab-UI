@@ -207,21 +207,20 @@
     socket.on('output', (data) => {
         const slot = slots[data.index];
         if (slot && slot.term) {
-            let cleanData = data.data;
+            let rawData = data.data;
 
             // Intercept Download Progress
-            if (cleanData.includes('[DL_PROGRESS]')) {
-                const match = cleanData.match(/\[DL_PROGRESS\]\s+(\d+)%/);
+            if (rawData.includes('[DL_PROGRESS]')) {
+                const match = rawData.match(/\[DL_PROGRESS\]\s+(\d+)%/);
                 if (match) {
-                    const percent = match[1];
-                    updateDownloadProgress(data.index, percent);
+                    updateDownloadProgress(data.index, match[1]);
                 }
                 return; // Hide from console
             }
 
             // Intercept URL for name guessing
-            if (cleanData.includes('[DL] URL:')) {
-                const urlMatch = cleanData.match(/\[DL\] URL:\s+(.+)/);
+            if (rawData.includes('[DL] URL:')) {
+                const urlMatch = rawData.match(/\[DL\] URL:\s+(.+)/);
                 if (urlMatch) {
                     const fileName = urlMatch[1].split('/').pop().split('?')[0];
                     document.getElementById(`dl-name-${data.index}`).innerText = decodeURIComponent(fileName);
@@ -230,14 +229,16 @@
             }
 
             // Reset progress on completion or skip
-            if (cleanData.includes('[✓] Download complete') || cleanData.includes('[✗] Download failed') || cleanData.includes('[Skip]')) {
+            if (rawData.includes('[✓] Download complete') || rawData.includes('[✗] Download failed') || rawData.includes('[Skip]')) {
                 setTimeout(() => {
                     document.getElementById(`dl-progress-area-${data.index}`).style.setProperty('display', 'none', 'important');
                     updateClearButtonVisibility(data.index);
                 }, 2000);
             }
 
-            slot.term.write(cleanData);
+            // Write data as-is to let xterm.js handle \r and \n correctly
+            slot.term.write(rawData);
+            
             if (slot.isAtBottom) slot.term.scrollToBottom();
 
             setTimeout(() => {
@@ -585,7 +586,7 @@
 
     socket.on('file-details', (data) => {
         const body = document.getElementById('detailsBody'); document.getElementById('detailsTitle').innerText = data.name;
-        if (data.error) { body.innerHTML = `<div class="text-danger text-center">${data.error}</div>`; return; }
+        const errorHtml = data.error ? `<div class="text-danger text-center mb-3">${data.error}</div>` : '';
 
         const isAdmin = adminUsername && currentUsername === adminUsername;
         let displayPath = data.path; // e.g. "__STAGING__/project/file.mkv"
@@ -593,7 +594,7 @@
 
         // Construct local path: (localpathmodifier)\(topdirectory)\relative_path
         let localModifier = userSettings.localPathRoot || 'P:';
-        const winRelativePath = displayPath.replace(/\//g, '\\');
+        const winRelativePath = (displayPath || '').replace(/\//g, '\\');
         const winTopDir = topDir.replace(/\//g, '\\');
 
         // Join parts and ensure single backslashes (except possibly after drive letter)
@@ -611,6 +612,7 @@
 
         const rows = [['File Size', data.size],['Duration', data.duration],['Container', data.container],['Resolution', data.width ? `${data.width}x${data.height}` : 'N/A'],['Frame Rate', data.fps],['Audio Bitrate', data.audio_bitrate],['Channels', data.channels],['Sample Rate', data.sample_rate]];
         body.innerHTML = `
+            ${errorHtml}
             ${data.thumbnail ? `<div class="mb-3" style="margin: -1rem -1rem 1rem -1rem; overflow: hidden; border-bottom: 1px solid #333;"><img src="data:image/jpeg;base64,${data.thumbnail}" style="width: 100%; display: block; object-fit: cover; max-height: 250px;"></div>` : ''}
             <div class="mb-3 border-bottom border-secondary pb-2">
                 <div class="d-flex justify-content-between align-items-center mb-1">

@@ -162,7 +162,11 @@ download_file() {
       --header="User-Agent: Mozilla/5.0" \
       --header="Referer: $u" \
       -P "$STAGING_DIR" \
-      "$u" 2>&1 | stdbuf -oL sed -u -e 's/.* \([0-9]\+\)% .*/[DL_PROGRESS] \1%/'; then
+      "$u" 2>&1 | stdbuf -oL sed -u \
+        -e 's/.* \([0-9]\+\)% .*/[DL_PROGRESS] \1%/' \
+        -e '/[0-9]\+K /d' \
+        -e '/^ \+\./d' \
+        -e '/^\.\.\./d'; then
 
     downloaded=$(find "$STAGING_DIR" -maxdepth 1 -type f -newer "$ref_file" ! -name "$(basename "$ref_file")" -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
     
@@ -423,39 +427,25 @@ run_filebot() {
           selected="${results}"
           echo "[Auto] Using: $selected"
         else
-          auto=""
-          for r in "${results[@]}"; do
-            r_clean=$(echo "$r" | sed -E 's/ \([0-9]{4}\)//')
-            if [[ "${r_clean,,}" == "${clean,,}" ]]; then
-              auto="$r"
-              break
-            fi
+          echo "Select match:"
+          echo " 0) Skip this group"
+          for i in "${!results[@]}"; do
+            printf "%2d) %s\n" $((i+1)) "${results[$i]}"
           done
 
-          if [[ -n "$auto" ]]; then
-            selected="$auto"
-            echo "[Auto] Exact match: $selected"
-          else
-            echo "Select match:"
-            echo " 0) Skip this group"
-            for i in "${!results[@]}"; do
-              printf "%2d) %s\n" $((i+1)) "${results[$i]}"
-            done
+          read -rp "Choice: " pick
 
-            read -rp "Choice: " pick
-
-            if [[ "$pick" == "0" ]]; then
-              echo "[Skip] User skipped group"
-              continue
-            fi
-
-            if [[ ! "$pick" =~ ^[0-9]+$ ]] || \
-               (( pick < 1 || pick > ${#results[@]} )); then
-              echo "[Skip] Invalid selection"
-              continue
-            fi
-            selected="${results[$((pick-1))]}"
+          if [[ "$pick" == "0" ]]; then
+            echo "[Skip] User skipped group"
+            continue
           fi
+
+          if [[ ! "$pick" =~ ^[0-9]+$ ]] || \
+             (( pick < 1 || pick > ${#results[@]} )); then
+            echo "[Skip] Invalid selection"
+            continue
+          fi
+          selected="${results[$((pick-1))]}"
         fi
 
         filebot -rename "${group_files[@]}" \

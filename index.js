@@ -404,7 +404,13 @@ io.on('connection', (socket) => {
                 } else {
                     emitDetails();
                 }
-            } catch (e) { socket.emit('file-details', { name: path.basename(fullPath), size: formatBytes(stats.size), error: 'Metadata parsing failed', root, filePath, canDelete }); }
+            } catch (e) { socket.emit('file-details', { 
+                name: path.basename(fullPath), 
+                path: path.relative(__dirname, fullPath),
+                size: formatBytes(stats.size), 
+                error: 'Metadata parsing failed', 
+                root, filePath, canDelete 
+            }); }
         });
     });
 
