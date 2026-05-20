@@ -11,6 +11,13 @@ const FileStore = require('session-file-store')(session);
 const pam = require('authenticate-pam');
 const { exec } = require('child_process');
 
+const pkg = require('./package.json');
+
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+    console.log(pkg.version);
+    process.exit(0);
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
