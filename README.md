@@ -1,3 +1,5 @@
+Grab UI is still somewhat in a Work in Progress state, and some features and functionality may be subject to change.
+
 # Grab UI - Media Automation & Management
 
 Grab UI is a powerful, web-based media automation tool that combines a robust shell-based processing engine with a modern, multi-session web interface. It allows users to scrape, download, transcode, and organize movies and TV shows with enterprise-grade features.
