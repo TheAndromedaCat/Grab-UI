@@ -19,7 +19,7 @@ const MEMORY_FILE = path.join(__dirname, 'memory.json');
 let state = {
     featuresEnabled: { filebot: true, handbrake: true },
     adminPassword: process.env.ADMIN_PASSWORD || 'admin123',
-    userConfigs: {}
+    userConfigs: {} // { username: [slot1, slot2, slot3] }
 };
 
 // Global State per User (Transient)
@@ -27,24 +27,36 @@ let userStates = {};
 
 function getUserState(username) {
     if (!state.userConfigs[username]) {
-        state.userConfigs[username] = { 
-            type: 'movie', 
-            url: '', 
-            project: '',
-            useFilebot: false, 
-            useHandbrake: false,
-            fbAutoPick: true 
-        };
+        state.userConfigs[username] = [
+            { type: 'movie', url: '', project: '', useFilebot: false, useHandbrake: false, fbAutoPick: true }
+        ];
     }
 
     if (!userStates[username]) {
         userStates[username] = {
-            shell: null,
-            logHistory: '',
-            currentConfig: state.userConfigs[username]
+            slots: state.userConfigs[username].map(config => ({
+                shell: null,
+                logHistory: '',
+                currentConfig: config
+            }))
         };
     }
     return userStates[username];
+}
+
+function addSlot(username) {
+    const userState = getUserState(username);
+    if (userState.slots.length >= 3) return false;
+    
+    const newConfig = { type: 'movie', url: '', project: '', useFilebot: false, useHandbrake: false, fbAutoPick: true };
+    state.userConfigs[username].push(newConfig);
+    userState.slots.push({
+        shell: null,
+        logHistory: '',
+        currentConfig: newConfig
+    });
+    saveState();
+    return true;
 }
 
 function getPathForTarget(target) {
@@ -59,10 +71,6 @@ function getPathForTarget(target) {
     return { staging, outputs };
 }
 
-function getUserPaths(username) {
-    return getPathForTarget(username);
-}
-
 function saveState() {
     try { 
         fs.writeFileSync(MEMORY_FILE, JSON.stringify(state, null, 2));
@@ -74,7 +82,15 @@ function saveState() {
 if (fs.existsSync(MEMORY_FILE)) {
     try {
         const savedState = JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf8'));
-        if (savedState.userConfigs) state.userConfigs = savedState.userConfigs;
+        if (savedState.userConfigs) {
+            // Migration: if someone had an object config, convert to array
+            for (const user in savedState.userConfigs) {
+                if (!Array.isArray(savedState.userConfigs[user])) {
+                    savedState.userConfigs[user] = [savedState.userConfigs[user]];
+                }
+            }
+            state.userConfigs = savedState.userConfigs;
+        }
         if (savedState.featuresEnabled) state.featuresEnabled = { ...state.featuresEnabled, ...savedState.featuresEnabled };
         if (savedState.adminPassword) state.adminPassword = savedState.adminPassword;
         saveState();
@@ -177,16 +193,45 @@ io.on('connection', (socket) => {
     socket.join(username);
 
     const userState = getUserState(username);
-    const userPaths = getUserPaths(username);
 
     socket.emit('init-state', {
-        config: userState.currentConfig,
-        logs: userState.logHistory,
-        isRunning: !!userState.shell,
+        slots: userState.slots.map(s => ({
+            config: s.currentConfig,
+            logs: s.logHistory,
+            isRunning: !!s.shell
+        })),
         features: state.featuresEnabled
     });
 
     socket.emit('user-info', username);
+
+    socket.on('add-slot', () => {
+        if (addSlot(username)) {
+            io.to(username).emit('slot-added', {
+                slots: userState.slots.map(s => ({
+                    config: s.currentConfig,
+                    logs: s.logHistory,
+                    isRunning: !!s.shell
+                }))
+            });
+        }
+    });
+
+    socket.on('remove-slot', (index) => {
+        if (userState.slots.length <= 1) return;
+        if (userState.slots[index].shell) userState.slots[index].shell.kill();
+        state.userConfigs[username].splice(index, 1);
+        userState.slots.splice(index, 1);
+        saveState();
+        io.to(username).emit('init-state', {
+            slots: userState.slots.map(s => ({
+                config: s.currentConfig,
+                logs: s.logHistory,
+                isRunning: !!s.shell
+            })),
+            features: state.featuresEnabled
+        });
+    });
 
     socket.on('get-file-details', (data) => {
         const { root, filePath } = data;
@@ -249,24 +294,35 @@ io.on('connection', (socket) => {
         } else socket.emit('password-changed', { success: false, message: 'Current password incorrect' });
     });
 
-    socket.on('update-config', (config) => {
-        state.userConfigs[username] = { ...state.userConfigs[username], ...config };
-        userState.currentConfig = state.userConfigs[username];
+    socket.on('update-config', (data) => {
+        const { index, config } = data;
+        if (!userState.slots[index]) return;
+        state.userConfigs[username][index] = { ...state.userConfigs[username][index], ...config };
+        userState.slots[index].currentConfig = state.userConfigs[username][index];
         saveState();
-        io.to(username).emit('config-updated', userState.currentConfig);
+        io.to(username).emit('config-updated', { index, config: userState.slots[index].currentConfig });
     });
 
-    socket.on('resize', (size) => { if (userState.shell) userState.shell.resize(size.cols, size.rows); });
+    socket.on('resize', (data) => { 
+        const { index, cols, rows } = data;
+        if (userState.slots[index] && userState.slots[index].shell) {
+            userState.slots[index].shell.resize(cols, rows); 
+        }
+    });
 
-    socket.on('run-command', (config) => {
-        if (userState.shell) return;
-        state.userConfigs[username] = { ...state.userConfigs[username], ...config };
-        userState.currentConfig = state.userConfigs[username];
+    socket.on('run-command', (data) => {
+        const { index, config } = data;
+        const slot = userState.slots[index];
+        if (!slot || slot.shell) return;
+
+        state.userConfigs[username][index] = { ...state.userConfigs[username][index], ...config };
+        slot.currentConfig = state.userConfigs[username][index];
         saveState();
-        io.to(username).emit('config-updated', userState.currentConfig);
-        userState.logHistory = `[System] Starting process for user: ${username}...\n`;
-        io.to(username).emit('clear-terminal');
-        io.to(username).emit('output', userState.logHistory);
+        
+        io.to(username).emit('config-updated', { index, config: slot.currentConfig });
+        slot.logHistory = `[System] Starting process in slot ${index + 1} for user: ${username}...\n`;
+        io.to(username).emit('clear-terminal', { index });
+        io.to(username).emit('output', { index, data: slot.logHistory });
 
         const { type, url, fbAutoPick, project } = config;
         let { useFilebot, useHandbrake } = config;
@@ -276,7 +332,7 @@ io.on('connection', (socket) => {
 
         const activePaths = getPathForTarget(project || username);
 
-        userState.shell = pty.spawn('bash', ['grab.sh'], {
+        slot.shell = pty.spawn('bash', ['grab.sh'], {
             name: 'xterm-color', 
             cols: parseInt(config.cols) || 80, 
             rows: parseInt(config.rows) || 24,
@@ -288,18 +344,18 @@ io.on('connection', (socket) => {
             }
         });
 
-        userState.shell.onData((data) => {
-            userState.logHistory += data;
-            if (userState.logHistory.length > 50000) userState.logHistory = userState.logHistory.slice(-50000);
-            io.to(username).emit('output', data);
+        slot.shell.onData((d) => {
+            slot.logHistory += d;
+            if (slot.logHistory.length > 50000) slot.logHistory = slot.logHistory.slice(-50000);
+            io.to(username).emit('output', { index, data: d });
         });
 
-        userState.shell.onExit(({ exitCode }) => {
+        slot.shell.onExit(({ exitCode }) => {
             const msg = `\r\n\x1b[32m[System] Process finished with exit code ${exitCode}\x1b[0m\r\n`;
-            userState.logHistory += msg; 
-            io.to(username).emit('output', msg);
-            userState.shell = null; 
-            io.to(username).emit('process-exit');
+            slot.logHistory += msg; 
+            io.to(username).emit('output', { index, data: msg });
+            slot.shell = null; 
+            io.to(username).emit('process-exit', { index });
             io.emit('tree-data', { 
                 staging: getTree(path.join(__dirname, '__STAGING__')), 
                 outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
@@ -307,18 +363,18 @@ io.on('connection', (socket) => {
         });
 
         setTimeout(() => {
-            if (!userState.shell) return;
-            userState.shell.write(useFilebot ? 'y\n' : 'n\n');
+            if (!slot.shell) return;
+            slot.shell.write(useFilebot ? 'y\n' : 'n\n');
             if (useFilebot) {
-                userState.shell.write(fbAutoPick ? 'y\n' : 'n\n');
-                userState.shell.write(type === 'filebot-only' ? 'y\n' : 'n\n');
+                slot.shell.write(fbAutoPick ? 'y\n' : 'n\n');
+                slot.shell.write(type === 'filebot-only' ? 'y\n' : 'n\n');
             }
             if (type !== 'filebot-only') {
-                userState.shell.write(useHandbrake ? 'y\n' : 'n\n');
-                if (useHandbrake) userState.shell.write(type === 'transcode-only' ? 'y\n' : 'n\n');
+                slot.shell.write(useHandbrake ? 'y\n' : 'n\n');
+                if (useHandbrake) slot.shell.write(type === 'transcode-only' ? 'y\n' : 'n\n');
                 if (type !== 'transcode-only') {
-                    userState.shell.write(type === 'movie' ? 'M\n' : 'S\n');
-                    userState.shell.write(`${url}\n`);
+                    slot.shell.write(type === 'movie' ? 'M\n' : 'S\n');
+                    slot.shell.write(`${url}\n`);
                 }
             }
         }, 500);
@@ -331,19 +387,26 @@ io.on('connection', (socket) => {
         });
     });
     
-    socket.on('input', (data) => { if (userState.shell) userState.shell.write(data); });
-    socket.on('kill', () => {
-        if (userState.shell) {
-            userState.shell.kill(); 
-            userState.shell = null;
-            const msg = '\r\n\x1b[31m[System] Process killed by user.\x1b[0m\r\n';
-            userState.logHistory += msg; 
-            io.to(username).emit('output', msg); 
-            io.to(username).emit('process-exit');
+    socket.on('input', (data) => { 
+        const { index, input } = data;
+        if (userState.slots[index] && userState.slots[index].shell) {
+            userState.slots[index].shell.write(input); 
         }
     });
 
-    // Periodic tree refresh for this user's active session
+    socket.on('kill', (index) => {
+        const slot = userState.slots[index];
+        if (slot && slot.shell) {
+            slot.shell.kill(); 
+            slot.shell = null;
+            const msg = '\r\n\x1b[31m[System] Process killed by user.\x1b[0m\r\n';
+            slot.logHistory += msg; 
+            io.to(username).emit('output', { index, data: msg }); 
+            io.to(username).emit('process-exit', { index });
+        }
+    });
+
+    // Periodic tree refresh
     const treeInterval = setInterval(() => {
         socket.emit('tree-data', { 
             staging: getTree(path.join(__dirname, '__STAGING__')), 
@@ -361,5 +424,3 @@ const PORT = process.env.PORT || 2026;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
 });
-
-// END OF FILE
