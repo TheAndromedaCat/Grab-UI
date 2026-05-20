@@ -15,7 +15,7 @@ class GrabUi < Formula
   # depends_on "handbrake-cli"
 
   def install
-    system "npm", "install", *std_npm_args(libexec)
+    system "npm", "install", *std_npm_args
     bin.install_symlink Dir["#{libexec}/bin/*"]
   end
 
