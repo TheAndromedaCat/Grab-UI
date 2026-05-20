@@ -102,7 +102,7 @@ Install these to enable transcoding, metadata inspection, and automated renaming
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/TheAndromedaCat/Grab-UI.git
-   cd grab
+   cd Grab-UI
    ```
 2. **Install dependencies**:
    ```bash
