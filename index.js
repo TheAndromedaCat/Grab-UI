@@ -22,12 +22,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
-const MEMORY_FILE = path.join(DATA_DIR, 'memory.json');
-
-// Ensure data directories exist
-if (!fs.existsSync(path.join(DATA_DIR, '__STAGING__'))) fs.mkdirSync(path.join(DATA_DIR, '__STAGING__'), { recursive: true, mode: 0o777 });
-if (!fs.existsSync(path.join(DATA_DIR, '__OUTPUTS__'))) fs.mkdirSync(path.join(DATA_DIR, '__OUTPUTS__'), { recursive: true, mode: 0o777 });
+const MEMORY_FILE = path.join(__dirname, 'memory.json');
 
 // Global Application State
 let state = {
@@ -76,8 +71,8 @@ function addSlot(username) {
 }
 
 function getPathForTarget(target) {
-    const staging = path.join(DATA_DIR, '__STAGING__', target);
-    const outputs = path.join(DATA_DIR, '__OUTPUTS__', target);
+    const staging = path.join(__dirname, '__STAGING__', target);
+    const outputs = path.join(__dirname, '__OUTPUTS__', target);
     if (!fs.existsSync(staging)) fs.mkdirSync(staging, { recursive: true, mode: 0o777 });
     if (!fs.existsSync(outputs)) fs.mkdirSync(outputs, { recursive: true, mode: 0o777 });
     try {
@@ -135,7 +130,7 @@ function formatDuration(seconds) {
 
 const sessionMiddleware = session({
     store: new FileStore({
-        path: path.join(DATA_DIR, 'sessions'),
+        path: './sessions',
         ttl: 10 * 365 * 24 * 60 * 60,
         retries: 0
     }),
@@ -379,10 +374,10 @@ io.on('connection', (socket) => {
         if (!state.featuresEnabled.handbrake) useHandbrake = false;
 
         const activePaths = getPathForTarget(project || username);
-        const baseStaging = path.join(DATA_DIR, '__STAGING__');
-        const baseOutputs = path.join(DATA_DIR, '__OUTPUTS__');
+        const baseStaging = path.join(__dirname, '__STAGING__');
+        const baseOutputs = path.join(__dirname, '__OUTPUTS__');
 
-        slot.shell = pty.spawn('bash', [path.join(__dirname, 'grab.sh')], {
+        slot.shell = pty.spawn('bash', ['grab.sh'], {
             name: 'xterm-color', 
             cols: parseInt(config.cols) || 80, 
             rows: parseInt(config.rows) || 24,
@@ -433,10 +428,11 @@ io.on('connection', (socket) => {
     });
 
     socket.on('get-tree', () => {
-        socket.emit('tree-data', {
-            staging: getTree(path.join(DATA_DIR, '__STAGING__')),
-            outputs: getTree(path.join(DATA_DIR, '__OUTPUTS__'))
-        });    });
+        socket.emit('tree-data', { 
+            staging: getTree(path.join(__dirname, '__STAGING__')), 
+            outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
+        });
+    });
     
     socket.on('input', (data) => { 
         const { index, input } = data;
@@ -459,10 +455,11 @@ io.on('connection', (socket) => {
 
     // Periodic tree refresh
     const treeInterval = setInterval(() => {
-        socket.emit('tree-data', {
-            staging: getTree(path.join(DATA_DIR, '__STAGING__')),
-            outputs: getTree(path.join(DATA_DIR, '__OUTPUTS__'))
-        });    }, 10000);
+        socket.emit('tree-data', { 
+            staging: getTree(path.join(__dirname, '__STAGING__')), 
+            outputs: getTree(path.join(__dirname, '__OUTPUTS__')) 
+        });
+    }, 10000);
 
     socket.on('disconnect', () => {
         clearInterval(treeInterval);
