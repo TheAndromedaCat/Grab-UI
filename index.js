@@ -50,10 +50,11 @@ function getUserState(username) {
             slots: state.userConfigs[username].map(config => ({
                 shell: null,
                 logHistory: '',
-                currentConfig: config
+                currentConfig: config,
+                lastProgress: null,
+                lastDlName: null
             }))
-        };
-    }
+        };    }
     return userStates[username];
 }
 
@@ -66,7 +67,9 @@ function addSlot(username) {
     userState.slots.push({
         shell: null,
         logHistory: '',
-        currentConfig: newConfig
+        currentConfig: newConfig,
+        lastProgress: null,
+        lastDlName: null
     });
     saveState();
     return true;
@@ -269,6 +272,8 @@ io.on('connection', (socket) => {
             let isRunning = !!s.shell;
             let logs = s.logHistory;
             let config = s.currentConfig;
+            let lastProgress = s.lastProgress;
+            let lastDlName = s.lastDlName;
 
             if (project && !isRunning) {
                 const active = findActiveProject(project);
@@ -276,13 +281,17 @@ io.on('connection', (socket) => {
                     isRunning = true;
                     logs = active.slot.logHistory;
                     config = active.slot.currentConfig;
+                    lastProgress = active.slot.lastProgress;
+                    lastDlName = active.slot.lastDlName;
                 }
             }
 
             return {
                 config,
                 logs,
-                isRunning
+                isRunning,
+                lastProgress,
+                lastDlName
             };
         }),
         features: state.featuresEnabled,
@@ -660,6 +669,32 @@ io.on('connection', (socket) => {
         slot.shell.onData((d) => {
             slot.logHistory += d;
             if (slot.logHistory.length > 50000) slot.logHistory = slot.logHistory.slice(-50000);
+            
+            // Track progress
+            if (d.includes('[DL_PROGRESS]')) {
+                const match = d.match(/\[DL_PROGRESS\]\s+(\d+)%\s+(.+)/);
+                if (match) {
+                    slot.lastProgress = { percent: match[1], speed: match[2].trim() };
+                } else {
+                    const simpleMatch = d.match(/\[DL_PROGRESS\]\s+(\d+)%/);
+                    if (simpleMatch) slot.lastProgress = { percent: simpleMatch[1], speed: '' };
+                }
+            }
+
+            // Track download name
+            if (d.includes('[DL] URL:')) {
+                const urlMatch = d.match(/\[DL\] URL:\s+(.+)/);
+                if (urlMatch) {
+                    slot.lastDlName = urlMatch[1].split('/').pop().split('?')[0];
+                }
+            }
+
+            // Reset progress on completion
+            if (d.includes('[✓] Download complete') || d.includes('[✗] Download failed') || d.includes('[Skip]')) {
+                slot.lastProgress = null;
+                slot.lastDlName = null;
+            }
+
             if (project) {
                 broadcastToProject(project, 'output', { data: d });
             } else {
@@ -670,6 +705,8 @@ io.on('connection', (socket) => {
         slot.shell.onExit(({ exitCode }) => {
             const msg = `\r\n\x1b[32m[System] Process finished with exit code ${exitCode}\x1b[0m\r\n`;
             slot.logHistory += msg; 
+            slot.lastProgress = null;
+            slot.lastDlName = null;
             if (project) {
                 broadcastToProject(project, 'output', { data: msg });
                 broadcastToProject(project, 'process-exit', {});

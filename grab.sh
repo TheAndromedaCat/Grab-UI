@@ -163,7 +163,8 @@ download_file() {
       --header="Referer: $u" \
       -P "$STAGING_DIR" \
       "$u" 2>&1 | stdbuf -oL sed -u \
-        -e 's/.* \([0-9]\+\)% .*/[DL_PROGRESS] \1%/' \
+        -e 's/.* \([0-9]\+\)% \+\([^ ]\+\).*/[DL_PROGRESS] \1% \2/' \
+        -e '/\[DL_PROGRESS\]/b' \
         -e '/[0-9]\+K /d' \
         -e '/^ \+\./d' \
         -e '/^\.\.\./d'; then

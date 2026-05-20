@@ -48,6 +48,12 @@
         .project-label:hover { text-decoration: underline; }
         .slot-card { border-left: 4px solid #444; }
         .slot-card.running { border-left-color: #50fa7b; }
+        
+        /* Responsive Progress Bar */
+        @media (max-width: 768px) {
+            .progress-container-custom { width: 60px !important; }
+            .dl-speed-text { min-width: 60px !important; font-size: 0.75em; }
+        }
     </style>
 </head>
 <body>
@@ -211,9 +217,12 @@
 
             // Intercept Download Progress
             if (rawData.includes('[DL_PROGRESS]')) {
-                const match = rawData.match(/\[DL_PROGRESS\]\s+(\d+)%/);
+                const match = rawData.match(/\[DL_PROGRESS\]\s+(\d+)%\s+(.+)/);
                 if (match) {
-                    updateDownloadProgress(data.index, match[1]);
+                    updateDownloadProgress(data.index, match[1], match[2].trim());
+                } else {
+                    const simpleMatch = rawData.match(/\[DL_PROGRESS\]\s+(\d+)%/);
+                    if (simpleMatch) updateDownloadProgress(data.index, simpleMatch[1]);
                 }
                 return; // Hide from console
             }
@@ -274,12 +283,27 @@
         }
     }
 
-    function updateDownloadProgress(index, percent) {
+    function updateDownloadProgress(index, percent, speed = '') {
         const bar = document.getElementById(`dl-bar-${index}`);
         const text = document.getElementById(`dl-percent-${index}`);
+        const speedText = document.getElementById(`dl-speed-${index}`);
         const area = document.getElementById(`dl-progress-area-${index}`);
         if (bar) bar.style.width = percent + '%';
         if (text) text.innerText = percent + '%';
+        if (speedText && speed) {
+            let displaySpeed = speed;
+            // Standardize units to MB/s, KB/s, etc.
+            if (!speed.includes('/s')) {
+                const num = parseFloat(speed);
+                const unit = speed.replace(/[0-9.]/g, '').trim().toUpperCase();
+                if (unit === 'M') displaySpeed = num.toFixed(2) + 'MB/s';
+                else if (unit === 'K') displaySpeed = num.toFixed(2) + 'KB/s';
+                else if (unit === 'G') displaySpeed = num.toFixed(2) + 'GB/s';
+                else if (unit === 'B') displaySpeed = num.toFixed(2) + 'B/s';
+                else displaySpeed = speed + 'B/s';
+            }
+            speedText.innerText = displaySpeed;
+        }
         if (area && area.style.display !== 'flex') {
             area.style.setProperty('display', 'flex', 'important');
             updateClearButtonVisibility(index);
@@ -367,6 +391,16 @@
             document.getElementById(`run-btn-${data.index}`).disabled = false;
             document.getElementById(`kill-btn-${data.index}`).disabled = true;
             document.getElementById(`slot-card-${data.index}`).classList.remove('running');
+            
+            // Hide FileBot prompt if it's still showing
+            const promptArea = document.getElementById(`fb-prompt-area-${data.index}`);
+            const select = document.getElementById(`fb-choices-${data.index}`);
+            if (promptArea) promptArea.style.setProperty('display', 'none', 'important');
+            if (select) {
+                select.dataset.type = '';
+                select.value = '';
+            }
+
             updateClearButtonVisibility(data.index);
         }
     });
@@ -424,10 +458,11 @@
                             <button id="clear-btn-${i}" class="btn btn-outline-secondary btn-sm" onclick="clearTerminal(${i})" style="display: none;">Clear Console</button>
                             <div id="dl-progress-area-${i}" class="d-flex align-items-center gap-2 flex-grow-1 me-3" style="display: none !important; min-width: 0;">
                                 <span class="small text-info text-nowrap" id="dl-name-${i}" style="flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0;">Downloading...</span>
-                                <div class="progress" style="height: 10px; background-color: #333; width: 100px; flex-shrink: 0;">
+                                <div class="progress progress-container-custom" style="height: 10px; background-color: #333; width: 100px; flex-shrink: 0;">
                                     <div id="dl-bar-${i}" class="progress-bar bg-info progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
                                 </div>
-                                <span class="small text-info" id="dl-percent-${i}" style="flex-shrink: 0;">0%</span>
+                                <span class="small text-info" id="dl-percent-${i}" style="flex-shrink: 0; min-width: 35px;">0%</span>
+                                <span class="small text-info dl-speed-text" id="dl-speed-${i}" style="flex-shrink: 0; min-width: 75px; text-align: right; font-family: monospace;">0.00MB/s</span>
                             </div>
                         </div>
                         <a href="#" class="scroll-to-bottom" onclick="scrollToBottom(event, ${i})">↓ Go to bottom</a>
@@ -456,6 +491,13 @@
 
             applySlotConfig(i, s.config);
             applyFeaturesToSlot(i);
+
+            // Initialize progress if available
+            if (s.lastProgress) {
+                const dlNameEl = document.getElementById(`dl-name-${i}`);
+                if (s.lastDlName && dlNameEl) dlNameEl.innerText = decodeURIComponent(s.lastDlName);
+                updateDownloadProgress(i, s.lastProgress.percent, s.lastProgress.speed);
+            }
             
             // Re-sync size after a moment
             setTimeout(() => {
