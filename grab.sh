@@ -340,11 +340,22 @@ run_filebot() {
             continue
           fi
 
+          # Auto-skip failure/no results
+          if (( ${#results[@]} == 2 )) && [[ "${results[0]}" == "No search results" ]] && [[ "${results[1]}" == "Failure (×_×)⌒☆" ]]; then
+            echo "[Skip] FileBot search returned no results/failure"
+            continue
+          fi
+
           echo "Select Show match:"
+          echo " 0) Skip this group"
           for i in "${!results[@]}"; do
             printf "%2d) %s\n" $((i+1)) "${results[$i]}"
           done
           read -rp "Choice: " pick
+          if [[ "$pick" == "0" ]]; then
+            echo "[Skip] User skipped group"
+            continue
+          fi
           if [[ ! "$pick" =~ ^[0-9]+$ ]] || (( pick < 1 || pick > ${#results[@]} )); then
             echo "[Skip] Invalid selection"
             continue
@@ -374,6 +385,19 @@ run_filebot() {
           s/ $//;
         ')
 
+        if $FB_AUTO_PICK; then
+          echo "[FileBot] Auto-picking for Movie: $clean"
+          filebot -rename "${group_files[@]}" \
+            --db TheMovieDB \
+            -non-strict \
+            --q "$clean" \
+            --format "Movies/{n} ({y})/{n} ({y})" \
+            --output "$OUTPUT_DIR" \
+            --action move \
+            --conflict skip
+          continue
+        fi
+
         echo "[FileBot] Searching for: $clean"
 
         mapfile -t results < <(
@@ -385,6 +409,12 @@ run_filebot() {
 
         if (( ${#results[@]} == 0 )); then
           echo "[FileBot] No matches found for: $clean"
+          continue
+        fi
+
+        # Auto-skip failure/no results
+        if (( ${#results[@]} == 2 )) && [[ "${results[0]}" == "No search results" ]] && [[ "${results[1]}" == "Failure (×_×)⌒☆" ]]; then
+          echo "[Skip] FileBot search returned no results/failure"
           continue
         fi
 
@@ -406,11 +436,17 @@ run_filebot() {
             echo "[Auto] Exact match: $selected"
           else
             echo "Select match:"
+            echo " 0) Skip this group"
             for i in "${!results[@]}"; do
               printf "%2d) %s\n" $((i+1)) "${results[$i]}"
             done
 
             read -rp "Choice: " pick
+
+            if [[ "$pick" == "0" ]]; then
+              echo "[Skip] User skipped group"
+              continue
+            fi
 
             if [[ ! "$pick" =~ ^[0-9]+$ ]] || \
                (( pick < 1 || pick > ${#results[@]} )); then
