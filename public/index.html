@@ -53,6 +53,8 @@
         @media (max-width: 768px) {
             .progress-container-custom { width: 60px !important; }
             .dl-speed-text { min-width: 60px !important; font-size: 0.75em; }
+            .dl-name-dynamic { display: none !important; }
+            .dl-name-mobile-fallback { display: inline !important; }
         }
     </style>
 </head>
@@ -457,7 +459,8 @@
                         <div class="d-flex align-items-center gap-2 flex-grow-1">
                             <button id="clear-btn-${i}" class="btn btn-outline-secondary btn-sm" onclick="clearTerminal(${i})" style="display: none;">Clear Console</button>
                             <div id="dl-progress-area-${i}" class="d-flex align-items-center gap-2 flex-grow-1 me-3" style="display: none !important; min-width: 0;">
-                                <span class="small text-info text-nowrap" id="dl-name-${i}" style="flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0;">Downloading...</span>
+                                <span class="small text-info text-nowrap dl-name-dynamic" id="dl-name-${i}" style="flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; min-width: 0;">Downloading...</span>
+                                <span class="small text-info text-nowrap dl-name-mobile-fallback" style="display: none;">Downloading</span>
                                 <div class="progress progress-container-custom" style="height: 10px; background-color: #333; width: 100px; flex-shrink: 0;">
                                     <div id="dl-bar-${i}" class="progress-bar bg-info progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
                                 </div>

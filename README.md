@@ -23,6 +23,7 @@ Grab UI is a powerful, web-based media automation tool that combines a robust sh
 - **Intelligent Filtering:** Prioritizes high-resolution mirrors (2160p, 1080p) and premium audio formats (5.1, DDP, TrueHD).
 - **Duplicate Prevention:** Checks local workspace history to avoid redundant downloads.
 - **Recursive Downloader:** Robust `wget` implementation with random-wait and retry logic to bypass server throttling.
+- **Real-time Velocity Metrics:** Integrated live throughput monitoring to provide granular insights into active download speeds and network performance.
 
 ### ⚙️ Media Processing Engine
 - **HandBrake Integration:** Automatic transcoding of MKV files to optimized MP4 format using high-quality presets.
@@ -181,7 +182,6 @@ The web interface will be available at `http://your-server-ip:2026`.
 
 ## 🚀 Upcoming Roadmap
 - [ ] **Stateful Download Resumption:** Implement advanced chunk-aware download management to facilitate partial fragment recovery, eliminating the need for full-file re-transfers during intermittent network interruptions.
-- [ ] **Real-time Velocity Metrics:** Integrate live throughput monitoring to provide granular insights into active download speeds and network performance.
 
 ---
 *Note: This tool is intended for personal media management and organization.*
