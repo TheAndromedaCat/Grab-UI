@@ -2,7 +2,11 @@
   "name": "grab-ui",
   "version": "1.0.0",
   "description": "Web interface for grab.sh",
+  "license": "MIT",
   "main": "index.js",
+  "bin": {
+    "grab-ui": "index.js"
+  },
   "scripts": {
     "start": "node index.js"
   },
