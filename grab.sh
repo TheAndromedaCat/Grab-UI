@@ -281,8 +281,11 @@ run_filebot() {
     key="${key//./ }"
 
     key=$(echo "$key" | sed -E '
-      s/\b(1080p|720p|480p|2160p)\b//Ig;
-      s/\b(WEBRip|WEB-DL|BluRay|BRRip|HDRip|DVDRip|x264|x265|H264|H265)\b//Ig;
+      s/\b(1080p|720p|480p|2160p|4k)\b//Ig;
+      s/\b(WEBRip|WEB-DL|BluRay|BRRip|HDRip|DVDRip|BDRip|DSRip)\b//Ig;
+      s/\b(x264|x265|H264|H265|HEVC|AV1|10bit)\b//Ig;
+      s/\b(AAC|DDP5\.1|DDP|AC3|5\.1|7\.1|DTS|DTS-HD|TrueHD|E-AC3)\b//Ig;
+      s/\b(HDR|HDR10|DV|DoVi)\b//Ig;
       s/[[:space:]]+/ /g;
       s/^ //;
       s/ $//;
@@ -381,9 +384,12 @@ run_filebot() {
       M)
         clean="$key"
         clean=$(echo "$clean" | sed -E '
-          s/\b(19|20)[0-9]{2}\b.*//I;
-          s/\b(1080p|720p|480p|2160p)\b//Ig;
-          s/\b(WEBRip|WEB-DL|BluRay|BRRip|HDRip|DVDRip|x264|x265|H264|H265|AAC|DDP5\.1)\b//Ig;
+          s/\b((19|20)[0-9]{2})\b.*/\1/I;
+          s/\b(1080p|720p|480p|2160p|4k)\b//Ig;
+          s/\b(WEBRip|WEB-DL|BluRay|BRRip|HDRip|DVDRip|BDRip|DSRip)\b//Ig;
+          s/\b(x264|x265|H264|H265|HEVC|AV1|10bit)\b//Ig;
+          s/\b(AAC|DDP5\.1|DDP|AC3|5\.1|7\.1|DTS|DTS-HD|TrueHD|E-AC3)\b//Ig;
+          s/\b(HDR|HDR10|DV|DoVi)\b//Ig;
           s/[._-]+/ /g;
           s/[[:space:]]+/ /g;
           s/^ //;
@@ -409,7 +415,8 @@ run_filebot() {
           filebot -list \
             --db TheMovieDB \
             --q "$clean" \
-            2>/dev/null
+            --format "{n} ({y})" \
+            2>/dev/null | sort -u
         )
 
         if (( ${#results[@]} == 0 )); then
@@ -423,30 +430,25 @@ run_filebot() {
           continue
         fi
 
-        if (( ${#results[@]} == 1 )); then
-          selected="${results}"
-          echo "[Auto] Using: $selected"
-        else
-          echo "Select match:"
-          echo " 0) Skip this group"
-          for i in "${!results[@]}"; do
-            printf "%2d) %s\n" $((i+1)) "${results[$i]}"
-          done
+        echo "Select match:"
+        echo " 0) Skip this group"
+        for i in "${!results[@]}"; do
+          printf "%2d) %s\n" $((i+1)) "${results[$i]}"
+        done
 
-          read -rp "Choice: " pick
+        read -rp "Choice: " pick
 
-          if [[ "$pick" == "0" ]]; then
-            echo "[Skip] User skipped group"
-            continue
-          fi
-
-          if [[ ! "$pick" =~ ^[0-9]+$ ]] || \
-             (( pick < 1 || pick > ${#results[@]} )); then
-            echo "[Skip] Invalid selection"
-            continue
-          fi
-          selected="${results[$((pick-1))]}"
+        if [[ "$pick" == "0" ]]; then
+          echo "[Skip] User skipped group"
+          continue
         fi
+
+        if [[ ! "$pick" =~ ^[0-9]+$ ]] || \
+           (( pick < 1 || pick > ${#results[@]} )); then
+          echo "[Skip] Invalid selection"
+          continue
+        fi
+        selected="${results[$((pick-1))]}"
 
         filebot -rename "${group_files[@]}" \
           --db TheMovieDB \
