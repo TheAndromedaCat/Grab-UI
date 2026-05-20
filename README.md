@@ -143,25 +143,21 @@ pm2 startup
 
 The web interface will be available at `http://your-server-ip:2026`.
 
-### 5. Flatpak Installation (Experimental)
-For a containerized installation that bundles dependencies, you can build and install the Flatpak:
+### 5. Flatpak Generation
+The Flatpak version of Grab UI is automatically generated via **GitHub Actions** on every update to the main branch.
 
-1. **Install Flatpak Builder**:
-   - **Ubuntu/Debian**: `sudo apt install flatpak-builder`
-   - **Arch**: `sudo pacman -S flatpak-builder`
-   - **Fedora**: `sudo dnf install flatpak-builder`
-
-2. **Build and Install**:
+1. **Download:** Navigate to the **Actions** tab in this repository.
+2. **Artifacts:** Select the latest successful build and download the `grab-ui-flatpak` artifact.
+3. **Install:**
    ```bash
-   flatpak-builder --user --install --force-clean build-dir flatpak/com.github.grab_ui.yml
+   flatpak install ./grab-ui.flatpak
    ```
-
-3. **Run**:
+4. **Run:**
    ```bash
    flatpak run com.github.grab_ui
    ```
 
-*Note: The Flatpak version is experimental. Since it runs in a sandbox, Host PAM authentication may require additional configuration or be disabled in `index.js`.*
+*Note: The Flatpak version is containerized. Media files are automatically mapped to `~/grab` on your host machine for easy access.*
 
 ---
 *Note: This tool is intended for personal media management and organization.*
